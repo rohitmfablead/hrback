@@ -1,0 +1,30 @@
+{
+  "name": "face-recognition-setup",
+  "description": "Quick setup script for face recognition system",
+  "steps": [
+    {
+      "command": "cd backend",
+      "description": "Navigate to backend directory"
+    },
+    {
+      "command": "node download-face-models.js",
+      "description": "Download face recognition models"
+    },
+    {
+      "command": "npm start",
+      "description": "Start backend server"
+    }
+  ],
+  "test": {
+    "register_face": "POST http://localhost:5000/api/face/register (with image)",
+    "check_status": "GET http://localhost:5000/api/face/check-status",
+    "attendance": "Use FaceRecognitionDialog in frontend"
+  },
+  "notes": [
+    "Models will be downloaded to backend/src/models/face/",
+    "First request will load models (may take 2-3 seconds)",
+    "Subsequent requests will be faster (models cached)",
+    "Face matching threshold is 0.5 (Euclidean distance)",
+    "Requires good lighting for best results"
+  ]
+}
