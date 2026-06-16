@@ -7,7 +7,12 @@ import payrollRoutes from './payrollRoutes.js';
 import dashboardRoutes from './dashboardRoutes.js';
 import notificationRoutes from './notificationRoutes.js';
 import faceRoutes from './faceRoutes.js';
-
+import holidayRoutes from './holidayRoutes.js';
+import ruleRoutes from './ruleRoutes.js';
+import announcementRoutes from './announcementRoutes.js';
+import feedbackRoutes from './feedbackRoutes.js';
+import complaintRoutes from './complaintRoutes.js';
+import performanceRoutes from './performanceRoutes.js';
 const router = express.Router();
 
 router.use('/auth', authRoutes);
@@ -18,5 +23,10 @@ router.use('/payroll', payrollRoutes);
 router.use('/dashboard', dashboardRoutes);
 router.use('/notifications', notificationRoutes);
 router.use('/face', faceRoutes);
-
+router.use('/holidays', holidayRoutes);
+router.use('/rules', ruleRoutes);
+router.use('/announcements', announcementRoutes);
+router.use('/feedback', feedbackRoutes);
+router.use('/complaints', complaintRoutes);
+router.use('/performance', performanceRoutes);
 export default router;

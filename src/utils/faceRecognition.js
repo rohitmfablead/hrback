@@ -1,6 +1,10 @@
 import * as faceapi from 'face-api.js';
+import { Canvas, Image, ImageData } from 'canvas';
 import path from 'path';
 import { fileURLToPath } from 'url';
+
+// Monkey patch face-api.js for Node.js environment
+faceapi.env.monkeyPatch({ Canvas, Image, ImageData });
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -20,10 +24,10 @@ export const loadFaceModels = async () => {
     // Set models path
     const modelsPath = path.join(__dirname, '../models/face');
     
-    // Load required models using face-api.js syntax
-    await faceapi.nets.tinyFaceDetector.loadFromUri(modelsPath);
-    await faceapi.nets.faceLandmark68Net.loadFromUri(modelsPath);
-    await faceapi.nets.faceRecognitionNet.loadFromUri(modelsPath);
+    // Load required models using face-api.js syntax for Node.js
+    await faceapi.nets.tinyFaceDetector.loadFromDisk(modelsPath);
+    await faceapi.nets.faceLandmark68Net.loadFromDisk(modelsPath);
+    await faceapi.nets.faceRecognitionNet.loadFromDisk(modelsPath);
     
     modelsLoaded = true;
     console.log('✅ Face recognition models loaded successfully');
@@ -35,11 +39,16 @@ export const loadFaceModels = async () => {
   }
 };
 
-// Detect face and get embedding from image buffer
-export const detectFaceAndGetEmbedding = async (imageBuffer) => {
+// Detect face and get embedding from multer file object or buffer
+export const detectFaceAndGetEmbedding = async (file) => {
   try {
-    // Create image from buffer
-    const image = await faceapi.bufferToImage(imageBuffer);
+    const fs = await import('fs');
+    // Handle Buffer directly, memoryStorage (file.buffer) and diskStorage (file.path)
+    const imageBuffer = Buffer.isBuffer(file) ? file : (file.buffer || fs.readFileSync(file.path));
+
+    // Create image from buffer using canvas (Node.js)
+    const { loadImage } = await import('canvas');
+    const image = await loadImage(imageBuffer);
     
     // Detect face with landmarks using tinyFaceDetector (faster and lighter)
     const detection = await faceapi

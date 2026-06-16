@@ -1,28 +1,26 @@
-import { v4 as uuidv4 } from 'uuid';
-import db from '../config/database.js';
+import Notification from '../models/Notification.js';
 
 export const getNotifications = async (req, res) => {
   try {
     const { unreadOnly, type, limit = 20 } = req.query;
     
-    let notifications = db.findAll('notifications');
-
-    // Filter by user (you can add userId to notifications if needed)
-    // For now, return all notifications (can be filtered by role)
+    const query = {};
 
     if (unreadOnly === 'true') {
-      notifications = notifications.filter(n => !n.isRead);
+      query.isRead = false;
     }
 
     if (type) {
-      notifications = notifications.filter(n => n.type === type);
+      query.type = type;
     }
 
-    // Limit results
-    notifications = notifications.slice(0, parseInt(limit));
+    // Sort by newest first
+    const notifications = await Notification.find(query)
+      .sort({ createdAt: -1 })
+      .limit(parseInt(limit));
 
     // Count unread
-    const unreadCount = db.findAll('notifications').filter(n => !n.isRead).length;
+    const unreadCount = await Notification.countDocuments({ isRead: false });
 
     res.status(200).json({
       success: true,
@@ -49,7 +47,7 @@ export const markNotificationAsRead = async (req, res) => {
   try {
     const { id } = req.params;
 
-    const notification = db.findById('notifications', id);
+    const notification = await Notification.findById(id);
     if (!notification) {
       const error = new Error('Notification not found');
       error.code = 'NOT_FOUND';
@@ -57,7 +55,8 @@ export const markNotificationAsRead = async (req, res) => {
       throw error;
     }
 
-    db.update('notifications', id, { isRead: true });
+    notification.isRead = true;
+    await notification.save();
 
     res.status(200).json({
       success: true,
@@ -79,11 +78,7 @@ export const markNotificationAsRead = async (req, res) => {
 
 export const markAllAsRead = async (req, res) => {
   try {
-    const notifications = db.findAll('notifications');
-    
-    notifications.forEach(notification => {
-      db.update('notifications', notification.id, { isRead: true });
-    });
+    await Notification.updateMany({ isRead: false }, { isRead: true });
 
     res.status(200).json({
       success: true,
@@ -107,7 +102,7 @@ export const deleteNotification = async (req, res) => {
   try {
     const { id } = req.params;
 
-    const notification = db.findById('notifications', id);
+    const notification = await Notification.findById(id);
     if (!notification) {
       const error = new Error('Notification not found');
       error.code = 'NOT_FOUND';
@@ -115,7 +110,7 @@ export const deleteNotification = async (req, res) => {
       throw error;
     }
 
-    db.delete('notifications', id);
+    await Notification.findByIdAndDelete(id);
 
     res.status(200).json({
       success: true,
@@ -137,8 +132,7 @@ export const deleteNotification = async (req, res) => {
 
 export const clearAllNotifications = async (req, res) => {
   try {
-    // Clear all notifications by resetting the array
-    db.data.notifications = [];
+    await Notification.deleteMany({});
 
     res.status(200).json({
       success: true,
@@ -170,17 +164,13 @@ export const createNotification = async (req, res) => {
       throw error;
     }
 
-    const notification = {
-      id: uuidv4(),
+    const notification = await Notification.create({
       title,
       message,
       type,
       userId: userId || null,
       isRead: false,
-      createdAt: new Date().toISOString(),
-    };
-
-    db.insert('notifications', notification);
+    });
 
     res.status(201).json({
       success: true,

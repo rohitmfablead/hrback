@@ -6,7 +6,11 @@ const employeeSchema = new mongoose.Schema({
     required: true,
     unique: true,
   },
-  name: {
+  firstName: {
+    type: String,
+    required: true,
+  },
+  lastName: {
     type: String,
     required: true,
   },
@@ -22,6 +26,9 @@ const employeeSchema = new mongoose.Schema({
   department: {
     type: String,
     required: true,
+  },
+  designation: {
+    type: String,
   },
   role: {
     type: String,
@@ -40,8 +47,38 @@ const employeeSchema = new mongoose.Schema({
     enum: ['Active', 'Inactive'],
     default: 'Active',
   },
-  avatar: {
+  profilePicture: {
+    type: {
+      type: String,
+      enum: ['upload', 'url', 'none'],
+      default: 'upload'
+    },
+    url: {
+      type: String,
+      default: ''
+    }
+  },
+  address: {
     type: String,
+    default: ''
+  },
+  dob: {
+    type: Date,
+  },
+  bloodGroup: {
+    type: String,
+    default: ''
+  },
+  emergencyContact: {
+    name: { type: String, default: '' },
+    phone: { type: String, default: '' },
+    relation: { type: String, default: '' }
+  },
+  faceRegistration: {
+    isRegistered: { type: Boolean, default: false },
+    faceImage: { type: String, default: '' },
+    faceEmbedding: { type: [Number], default: [] },
+    registeredAt: { type: Date }
   },
 }, {
   timestamps: true,

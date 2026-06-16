@@ -6,12 +6,14 @@ import {
   rejectLeave,
   cancelLeave,
   getLeaveBalance,
+  getLeaveCalendar,
 } from '../controllers/leaveController.js';
 import { protect, authorize } from '../middleware/auth.js';
 
 const router = express.Router();
 
 router.get('/balance', protect, getLeaveBalance);
+router.get('/calendar', protect, getLeaveCalendar);
 router.get('/', protect, getAllLeaveRequests);
 router.post('/apply', protect, applyForLeave);
 router.put('/:id/approve', protect, authorize('Admin', 'HR'), approveLeave);

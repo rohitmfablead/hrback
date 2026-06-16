@@ -99,12 +99,14 @@ export const getMe = async (req, res) => {
       throw error;
     }
 
-    // Remove password from response
-    const { password, ...userWithoutPassword } = user;
+    // Clean user object
+    const userObj = user.toObject();
+    delete userObj.password;
+    delete userObj.__v;
 
     res.status(200).json({
       success: true,
-      data: userWithoutPassword,
+      data: userObj,
     });
   } catch (error) {
     if (error.code) {

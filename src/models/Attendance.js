@@ -30,6 +30,22 @@ const attendanceSchema = new mongoose.Schema({
     enum: ['Present', 'Absent', 'Late'],
     default: 'Present',
   },
+  lateByMinutes: {
+    type: Number,
+    default: 0,
+  },
+  totalWorkedHours: {
+    type: String,
+    default: '',
+  },
+  extraHours: {
+    type: String,
+    default: '',
+  },
+  shortfallHours: {
+    type: String,
+    default: '',
+  },
 }, {
   timestamps: true,
 });

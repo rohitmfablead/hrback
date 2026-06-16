@@ -21,7 +21,9 @@ const __dirname = path.dirname(__filename);
 const app = express();
 
 // Security middleware
-app.use(helmet());
+app.use(helmet({
+  crossOriginResourcePolicy: { policy: "cross-origin" }
+}));
 
 // CORS middleware - Allow multiple origins for development
 app.use(cors({

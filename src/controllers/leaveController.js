@@ -1,42 +1,50 @@
 import { v4 as uuidv4 } from 'uuid';
-import db from '../config/database.js';
+import Employee from '../models/Employee.js';
+import Leave from '../models/Leave.js';
 
 export const getAllLeaveRequests = async (req, res) => {
   try {
     const { employeeId, status, leaveType, fromDate, toDate } = req.query;
     
-    let leaves = db.findAll('leaves');
+    let query = {};
 
     // Apply filters based on user role
     if (req.user.role === 'Employee') {
-      const employee = db.findOne('employees', e => e.email === req.user.email);
+      const employee = await Employee.findOne({ email: req.user.email });
       if (employee) {
-        leaves = leaves.filter(l => l.employeeId === employee.id);
+        query.employeeId = employee.id;
       }
     } else if (employeeId) {
-      leaves = leaves.filter(l => l.employeeId === employeeId);
+      query.employeeId = employeeId;
     }
 
     if (status) {
-      leaves = leaves.filter(l => l.status === status);
+      query.status = status;
     }
 
     if (leaveType) {
-      leaves = leaves.filter(l => l.leaveType === leaveType);
+      query.leaveType = leaveType;
     }
 
-    if (fromDate) {
-      leaves = leaves.filter(l => l.fromDate >= fromDate);
+    if (fromDate || toDate) {
+      query.fromDate = {};
+      if (fromDate) query.fromDate.$gte = new Date(fromDate);
+      if (toDate) query.fromDate.$lte = new Date(toDate);
     }
 
-    if (toDate) {
-      leaves = leaves.filter(l => l.toDate <= toDate);
-    }
+    const leaves = await Leave.find(query).sort({ createdAt: -1 }).lean();
+
+    // Format dates back to YYYY-MM-DD for frontend compatibility
+    const formattedLeaves = leaves.map(l => ({
+      ...l,
+      fromDate: l.fromDate ? new Date(l.fromDate).toISOString().split('T')[0] : '',
+      toDate: l.toDate ? new Date(l.toDate).toISOString().split('T')[0] : ''
+    }));
 
     res.status(200).json({
       success: true,
       data: {
-        leaves,
+        leaves: formattedLeaves,
       },
     });
   } catch (error) {
@@ -66,7 +74,13 @@ export const applyForLeave = async (req, res) => {
     }
 
     // Get employee
-    const employee = db.findOne('employees', e => e.email === req.user.email);
+    let employee;
+    if ((req.user.role === 'Admin' || req.user.role === 'HR') && req.body.employeeId) {
+      employee = await Employee.findOne({ id: req.body.employeeId });
+    } else {
+      employee = await Employee.findOne({ email: req.user.email });
+    }
+    
     if (!employee) {
       const error = new Error('Employee profile not found');
       error.code = 'NOT_FOUND';
@@ -74,27 +88,28 @@ export const applyForLeave = async (req, res) => {
       throw error;
     }
 
-    const leave = {
+    const leave = await Leave.create({
       id: uuidv4(),
       employeeId: employee.id,
-      employeeName: employee.name,
+      employeeName: employee.name || `${employee.firstName} ${employee.lastName}`,
       leaveType,
-      fromDate,
-      toDate,
+      fromDate: new Date(fromDate),
+      toDate: new Date(toDate),
       reason,
       status: 'Pending',
-      reviewedBy: null,
-      reviewedAt: null,
       remarks: '',
-      createdAt: new Date().toISOString(),
-    };
+    });
 
-    db.insert('leaves', leave);
+    const formattedLeave = {
+      ...leave.toObject(),
+      fromDate: new Date(leave.fromDate).toISOString().split('T')[0],
+      toDate: new Date(leave.toDate).toISOString().split('T')[0]
+    };
 
     res.status(201).json({
       success: true,
       message: 'Leave application submitted successfully',
-      data: leave,
+      data: formattedLeave,
     });
   } catch (error) {
     if (error.code) {
@@ -115,7 +130,7 @@ export const approveLeave = async (req, res) => {
     const { id } = req.params;
     const { remarks = 'Approved' } = req.body;
 
-    const leave = db.findById('leaves', id);
+    const leave = await Leave.findOne({ id });
     if (!leave) {
       const error = new Error('Leave request not found');
       error.code = 'NOT_FOUND';
@@ -130,17 +145,27 @@ export const approveLeave = async (req, res) => {
       throw error;
     }
 
-    const updatedLeave = db.update('leaves', id, {
-      status: 'Approved',
-      reviewedBy: req.user.id,
-      reviewedAt: new Date().toISOString(),
-      remarks,
-    });
+    const updatedLeave = await Leave.findOneAndUpdate(
+      { id },
+      {
+        status: 'Approved',
+        reviewedBy: req.user.id,
+        reviewedAt: new Date(),
+        remarks,
+      },
+      { new: true }
+    );
+
+    const formattedLeave = {
+      ...updatedLeave.toObject(),
+      fromDate: updatedLeave.fromDate ? new Date(updatedLeave.fromDate).toISOString().split('T')[0] : '',
+      toDate: updatedLeave.toDate ? new Date(updatedLeave.toDate).toISOString().split('T')[0] : ''
+    };
 
     res.status(200).json({
       success: true,
       message: 'Leave approved successfully',
-      data: updatedLeave,
+      data: formattedLeave,
     });
   } catch (error) {
     if (error.code) {
@@ -161,7 +186,7 @@ export const rejectLeave = async (req, res) => {
     const { id } = req.params;
     const { remarks = 'Rejected' } = req.body;
 
-    const leave = db.findById('leaves', id);
+    const leave = await Leave.findOne({ id });
     if (!leave) {
       const error = new Error('Leave request not found');
       error.code = 'NOT_FOUND';
@@ -176,17 +201,27 @@ export const rejectLeave = async (req, res) => {
       throw error;
     }
 
-    const updatedLeave = db.update('leaves', id, {
-      status: 'Rejected',
-      reviewedBy: req.user.id,
-      reviewedAt: new Date().toISOString(),
-      remarks,
-    });
+    const updatedLeave = await Leave.findOneAndUpdate(
+      { id },
+      {
+        status: 'Rejected',
+        reviewedBy: req.user.id,
+        reviewedAt: new Date(),
+        remarks,
+      },
+      { new: true }
+    );
+
+    const formattedLeave = {
+      ...updatedLeave.toObject(),
+      fromDate: updatedLeave.fromDate ? new Date(updatedLeave.fromDate).toISOString().split('T')[0] : '',
+      toDate: updatedLeave.toDate ? new Date(updatedLeave.toDate).toISOString().split('T')[0] : ''
+    };
 
     res.status(200).json({
       success: true,
       message: 'Leave rejected successfully',
-      data: updatedLeave,
+      data: formattedLeave,
     });
   } catch (error) {
     if (error.code) {
@@ -206,7 +241,7 @@ export const cancelLeave = async (req, res) => {
   try {
     const { id } = req.params;
 
-    const leave = db.findById('leaves', id);
+    const leave = await Leave.findOne({ id });
     if (!leave) {
       const error = new Error('Leave request not found');
       error.code = 'NOT_FOUND';
@@ -216,7 +251,7 @@ export const cancelLeave = async (req, res) => {
 
     // Employees can only cancel their own leave requests
     if (req.user.role === 'Employee') {
-      const employee = db.findOne('employees', e => e.email === req.user.email);
+      const employee = await Employee.findOne({ email: req.user.email });
       if (!employee || leave.employeeId !== employee.id) {
         const error = new Error('You can only cancel your own leave requests');
         error.code = 'FORBIDDEN';
@@ -232,7 +267,7 @@ export const cancelLeave = async (req, res) => {
       throw error;
     }
 
-    db.delete('leaves', id);
+    await Leave.findOneAndDelete({ id });
 
     res.status(200).json({
       success: true,
@@ -259,7 +294,7 @@ export const getLeaveBalance = async (req, res) => {
 
     // If no employeeId provided, use current user
     if (!employeeId || req.user.role === 'Employee') {
-      const employee = db.findOne('employees', e => e.email === req.user.email);
+      const employee = await Employee.findOne({ email: req.user.email });
       if (!employee) {
         const error = new Error('Employee profile not found');
         error.code = 'NOT_FOUND';
@@ -267,16 +302,16 @@ export const getLeaveBalance = async (req, res) => {
         throw error;
       }
       employeeId = employee.id;
-      employeeName = employee.name;
+      employeeName = employee.name || `${employee.firstName} ${employee.lastName}`;
     } else {
-      const emp = db.findById('employees', employeeId);
+      const emp = await Employee.findOne({ id: employeeId });
       if (emp) {
-        employeeName = emp.name;
+        employeeName = emp.name || `${emp.firstName} ${emp.lastName}`;
       }
     }
 
     // Get all leaves for this employee
-    const allLeaves = db.findByQuery('leaves', l => l.employeeId === employeeId);
+    const allLeaves = await Leave.find({ employeeId }).lean();
     const approvedLeaves = allLeaves.filter(l => l.status === 'Approved');
 
     // Calculate used leaves by type
@@ -321,6 +356,33 @@ export const getLeaveBalance = async (req, res) => {
           code: error.code,
           message: error.message,
         },
+      });
+    }
+    throw error;
+  }
+};
+
+export const getLeaveCalendar = async (req, res) => {
+  try {
+    let query = {};
+    if (req.user.role === 'Employee') {
+      const employee = await Employee.findOne({ email: req.user.email });
+      if (employee) query.employeeId = employee.id;
+    }
+    const leaves = await Leave.find(query).sort({ date: 1 }).lean();
+    const formatted = leaves.map(l => ({
+      ...l,
+      date: new Date(l.date).toISOString().split('T')[0],
+    }));
+    res.status(200).json({
+      success: true,
+      data: { leaves: formatted },
+    });
+  } catch (error) {
+    if (error.code) {
+      return res.status(error.statusCode || 400).json({
+        success: false,
+        error: { code: error.code, message: error.message },
       });
     }
     throw error;

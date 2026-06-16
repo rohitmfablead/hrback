@@ -1,10 +1,12 @@
 import { v4 as uuidv4 } from 'uuid';
 import bcrypt from 'bcryptjs';
+import { sendWelcomeEmail } from '../utils/email.js';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import db from '../config/database.js';
 import User from '../models/User.js';
+import { detectFaceAndGetEmbedding, loadFaceModels } from '../utils/faceRecognition.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -27,7 +29,8 @@ export const getAllEmployees = async (req, res) => {
     const query = {};
     if (search) {
       query.$or = [
-        { name: { $regex: search, $options: 'i' } },
+        { firstName: { $regex: search, $options: 'i' } },
+        { lastName: { $regex: search, $options: 'i' } },
         { email: { $regex: search, $options: 'i' } }
       ];
     }
@@ -116,7 +119,7 @@ export const createEmployee = async (req, res) => {
       fileSize: req.file?.size,
     });
     
-    const { id, name, email, phone, department, designation, role, password: providedPassword, salary, joinDate, status } = req.body;
+    const { id, firstName, lastName, email, phone, department, designation, role, password: providedPassword, salary, joiningDate, status, profilePicture, faceRegistration } = req.body;
     
     // Handle profile picture upload
     let avatarUrl = '';
@@ -138,8 +141,8 @@ export const createEmployee = async (req, res) => {
     }
 
     // Validation
-    if (!name || !email || !department || !role) {
-      const error = new Error('Name, email, department and role are required');
+    if (!firstName || !lastName || !email || !department || !role) {
+      const error = new Error('FirstName, lastName, email, department and role are required');
       error.code = 'VALIDATION_ERROR';
       error.statusCode = 400;
       throw error;
@@ -155,22 +158,28 @@ export const createEmployee = async (req, res) => {
                              status === 'inactive' || status === 'Inactive' ? 'Inactive' : 
                              'Active';
 
-    // Check if email already exists in Employee collection
+    // Validate required fields
+    if (!firstName || !lastName || !email || !department) {
+      const error = new Error('Missing required fields (firstName, lastName, email, department)');
+      error.code = 'VALIDATION_ERROR';
+      error.statusCode = 400;
+      throw error;
+    }
+
+    // Check if employee already exists in Employee collection
     const existingEmployee = await db.findEmployeeByEmail(email);
     if (existingEmployee) {
-      const error = new Error('Employee with this email already exists');
+      const error = new Error('Employee already exists with this email');
       error.code = 'CONFLICT';
       error.statusCode = 409;
       throw error;
     }
 
-    // Check if User account already exists with this email
+    // Clean up any orphaned User credentials before proceeding
     const existingUser = await User.findOne({ email });
     if (existingUser) {
-      const error = new Error('User account already exists with this email');
-      error.code = 'CONFLICT';
-      error.statusCode = 409;
-      throw error;
+      console.log(`🧹 Cleaning up orphaned User credential for email: ${email}`);
+      await User.deleteOne({ email });
     }
 
     // Hash password
@@ -185,37 +194,94 @@ export const createEmployee = async (req, res) => {
       role,
     });
 
+    // Process face registration embedding if image is provided
+    let parsedFaceRegistration = faceRegistration;
+    if (typeof faceRegistration === 'string') {
+        try { parsedFaceRegistration = JSON.parse(faceRegistration); } catch (e) {}
+    }
+
+    let faceEmbedding = [];
+    let isFaceRegistered = false;
+    
+    if (parsedFaceRegistration && parsedFaceRegistration.faceImage) {
+      try {
+        await loadFaceModels();
+        const base64Data = parsedFaceRegistration.faceImage.replace(/^data:image\/\w+;base64,/, "");
+        const buffer = Buffer.from(base64Data, 'base64');
+        faceEmbedding = await detectFaceAndGetEmbedding(buffer);
+        isFaceRegistered = true;
+        parsedFaceRegistration.faceEmbedding = faceEmbedding;
+        parsedFaceRegistration.isRegistered = true;
+        console.log(`✅ Extracted face embedding for new employee`);
+      } catch (err) {
+        console.error('❌ Failed to get embedding from base64 image:', err.message);
+      }
+    }
+
     // Create User account for login
+    let defaultAvatar = avatarUrl || (profilePicture?.url) || '';
+    if (!defaultAvatar && firstName && lastName) {
+      defaultAvatar = `${firstName[0]}${lastName[0]}`.toUpperCase();
+    }
+    
     const user = await User.create({
       id: employeeId,
-      name,
+      name: `${firstName} ${lastName}`,
       email,
       password: hashedPassword,
       role: role || 'Employee',
-      avatar: avatarUrl || name.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2), // Use uploaded image or initials
+      avatar: defaultAvatar,
       phone,
       department,
+      faceRegistered: isFaceRegistered,
+      faceEmbedding: faceEmbedding,
     });
 
     console.log(`✓ User account created for ${email} with ID: ${user.id}`);
     console.log(`🖼️ User avatar saved:`, user.avatar);
 
     // Create employee record
-    const employee = await db.createEmployee({
-      id: user.id,
-      name,
-      email,
-      phone: phone || '',
-      department,
-      designation: designation || 'Team Member',
-      role: role || 'Employee',
-      salary: parseFloat(salary) || 0,
-      joinDate: joinDate || new Date(),
-      status: normalizedStatus,
-      avatar: user.avatar, // Copy avatar from User to Employee
-    });
+    let parsedProfilePicture = profilePicture;
+    if (typeof profilePicture === 'string') {
+        try { parsedProfilePicture = JSON.parse(profilePicture); } catch (e) {}
+    }
+
+    const finalProfilePicture = {
+      type: parsedProfilePicture?.type || (req.file ? 'upload' : 'none'),
+      url: avatarUrl || parsedProfilePicture?.url || ''
+    };
+
+    let employee;
+    try {
+      employee = await db.createEmployee({
+        id: user.id,
+        firstName,
+        lastName,
+        email,
+        phone: phone || '',
+        department,
+        designation: designation || 'Team Member',
+        role: role || 'Employee',
+        salary: parseFloat(salary) || 0,
+        joiningDate: joiningDate || new Date(),
+        status: normalizedStatus,
+        profilePicture: finalProfilePicture,
+        faceRegistration: parsedFaceRegistration || {
+          isRegistered: false,
+          faceImage: "",
+          faceEmbedding: [],
+        }
+      });
+    } catch (empError) {
+      // If employee creation fails, cleanup the user we just created
+      await User.deleteOne({ id: user.id });
+      throw empError;
+    }
 
     console.log(`👤 Employee record created with avatar:`, employee.avatar);
+
+    // Send the welcome email with credentials
+    sendWelcomeEmail(user.email, employee.firstName, employee.id, generatedPassword);
 
     res.status(201).json({
       success: true,
@@ -228,7 +294,7 @@ export const createEmployee = async (req, res) => {
           password: generatedPassword, // Send auto-generated password
           isGenerated: !providedPassword,
         },
-        avatar: employee.avatar, // Include avatar URL in response
+        profilePicture: employee.profilePicture, // Include avatar info in response
       },
     });
   } catch (error) {
@@ -254,14 +320,26 @@ export const updateEmployee = async (req, res) => {
     if (req.file) {
       const port = process.env.PORT || '5000';
       const baseUrl = `http://localhost:${port}`;
-      updateData.avatar = `${baseUrl}/uploads/employees/${req.file.filename}`;
+      
+      updateData.profilePicture = {
+        type: 'upload',
+        url: `${baseUrl}/uploads/employees/${req.file.filename}`
+      };
+      
       console.log(`📷 Profile picture updated:`, {
         originalName: req.file.originalname,
         filename: req.file.filename,
-        url: updateData.avatar,
+        url: updateData.profilePicture.url,
       });
     } else {
       console.log('❌ No file received in req.file for update');
+      if (typeof updateData.profilePicture === 'string') {
+        try { updateData.profilePicture = JSON.parse(updateData.profilePicture); } catch (e) {}
+      }
+    }
+    
+    if (typeof updateData.faceRegistration === 'string') {
+      try { updateData.faceRegistration = JSON.parse(updateData.faceRegistration); } catch (e) {}
     }
 
     // Normalize status if it's being updated
@@ -293,10 +371,36 @@ export const updateEmployee = async (req, res) => {
     // Update Employee record
     const updatedEmployee = await db.updateEmployee(id, updateData);
     
-    // Also update User record if avatar is being updated
-    if (updateData.avatar) {
-      await User.findOneAndUpdate({ email: employee.email }, { avatar: updateData.avatar });
-      console.log(`🖼️ User avatar also updated to:`, updateData.avatar);
+    // Also update User record if avatar/profilePicture is being updated
+    if (updateData.profilePicture?.url) {
+      await User.findOneAndUpdate({ email: employee.email }, { avatar: updateData.profilePicture.url });
+      console.log(`🖼️ User avatar also updated to:`, updateData.profilePicture.url);
+    } else if (updateData.firstName || updateData.lastName) {
+      const newName = `${updateData.firstName || employee.firstName} ${updateData.lastName || employee.lastName}`;
+      await User.findOneAndUpdate({ email: employee.email }, { name: newName });
+    }
+
+    // Update face registration embedding if image is provided
+    if (updateData.faceRegistration && updateData.faceRegistration.faceImage) {
+      try {
+        await loadFaceModels();
+        const base64Data = updateData.faceRegistration.faceImage.replace(/^data:image\/\w+;base64,/, "");
+        const buffer = Buffer.from(base64Data, 'base64');
+        const faceEmbedding = await detectFaceAndGetEmbedding(buffer);
+        
+        await User.findOneAndUpdate({ email: employee.email }, { 
+          faceRegistered: true,
+          faceEmbedding: faceEmbedding 
+        });
+        
+        // Also update the employee record data
+        updateData.faceRegistration.faceEmbedding = faceEmbedding;
+        updateData.faceRegistration.isRegistered = true;
+        
+        console.log(`✅ Extracted and updated face embedding for existing employee`);
+      } catch (err) {
+        console.error('❌ Failed to update embedding from base64 image:', err.message);
+      }
     }
 
     res.status(200).json({
@@ -321,16 +425,23 @@ export const updateEmployee = async (req, res) => {
 export const deleteEmployee = async (req, res) => {
   try {
     const { id } = req.params;
+    
+    // First try to delete the User account (login credentials)
+    const user = await User.findOneAndDelete({ id: id });
+    
+    // Then try to find and delete the employee record
     const employee = await db.findEmployeeById(id);
 
-    if (!employee) {
-      const error = new Error('Employee not found');
+    if (!employee && !user) {
+      const error = new Error('Employee/User not found');
       error.code = 'NOT_FOUND';
       error.statusCode = 404;
       throw error;
     }
 
-    await db.deleteEmployee(id);
+    if (employee) {
+      await db.deleteEmployee(id);
+    }
 
     res.status(200).json({
       success: true,
@@ -376,5 +487,88 @@ export const getMyProfile = async (req, res) => {
       });
     }
     throw error;
+  }
+};
+
+export const updateMyProfile = async (req, res) => {
+  try {
+    const email = req.user.email;
+    const employee = await db.findEmployeeByEmail(email);
+
+    if (!employee) {
+      const error = new Error('Employee profile not found');
+      error.code = 'NOT_FOUND';
+      error.statusCode = 404;
+      throw error;
+    }
+
+    const { phone, address, dob, bloodGroup, emergencyContact, password, name } = req.body;
+
+    const updateData = {};
+    if (phone !== undefined) updateData.phone = phone;
+    if (address !== undefined) updateData.address = address;
+    if (dob !== undefined) updateData.dob = dob;
+    if (bloodGroup !== undefined) updateData.bloodGroup = bloodGroup;
+    if (emergencyContact !== undefined) updateData.emergencyContact = emergencyContact;
+    
+    // Handle name update
+    let newName = null;
+    if (name && name.trim().length > 0) {
+      newName = name.trim();
+      const nameParts = newName.split(' ');
+      updateData.firstName = nameParts[0];
+      updateData.lastName = nameParts.length > 1 ? nameParts.slice(1).join(' ') : '';
+    }
+
+    // Handle avatar upload
+    let avatarUrl = null;
+    if (req.file) {
+      const port = process.env.PORT || '5000';
+      const baseUrl = `http://localhost:${port}`;
+      avatarUrl = `${baseUrl}/uploads/employees/${req.file.filename}`;
+      
+      updateData.profilePicture = {
+        type: 'upload',
+        url: avatarUrl
+      };
+    }
+
+    // Update Employee
+    let updatedEmployee = employee;
+    if (Object.keys(updateData).length > 0) {
+      updatedEmployee = await db.updateEmployee(employee.id, updateData);
+    }
+
+    // Update User (password, name, avatar)
+    const userUpdate = {};
+    if (newName) userUpdate.name = newName;
+    if (avatarUrl) userUpdate.avatar = avatarUrl;
+    
+    if (password && password.trim().length > 0) {
+      userUpdate.password = await bcrypt.hash(password, 10);
+    }
+
+    if (Object.keys(userUpdate).length > 0) {
+      await User.findOneAndUpdate(
+        { email: email },
+        userUpdate
+      );
+    }
+
+    res.status(200).json({
+      success: true,
+      data: updatedEmployee,
+    });
+  } catch (error) {
+    if (error.code) {
+      return res.status(error.statusCode || 400).json({
+        success: false,
+        error: {
+          code: error.code,
+          message: error.message,
+        },
+      });
+    }
+    res.status(500).json({ success: false, error: { message: error.message } });
   }
 };

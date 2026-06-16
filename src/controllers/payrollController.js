@@ -1,33 +1,38 @@
 import { v4 as uuidv4 } from 'uuid';
-import db from '../config/database.js';
+import Payroll from '../models/Payroll.js';
+import Employee from '../models/Employee.js';
 
 export const getPayrollRecords = async (req, res) => {
   try {
     const { employeeId, month, status, year } = req.query;
     
-    let payroll = db.findAll('payroll');
+    const query = {};
 
-    // Apply filters based on user role
     if (req.user.role === 'Employee') {
-      const employee = db.findOne('employees', e => e.email === req.user.email);
+      const employee = await Employee.findOne({ email: req.user.email });
       if (employee) {
-        payroll = payroll.filter(p => p.employeeId === employee.id);
+        query.employeeId = employee.id;
+      } else {
+        query.employeeId = 'not-found';
       }
     } else if (employeeId) {
-      payroll = payroll.filter(p => p.employeeId === employeeId);
+      query.employeeId = employeeId;
     }
 
     if (month) {
-      payroll = payroll.filter(p => p.month.toLowerCase().includes(month.toLowerCase()));
+      query.month = { $regex: month, $options: 'i' };
     }
 
     if (year) {
-      payroll = payroll.filter(p => p.month.includes(year.toString()));
+      // Month usually contains year in "March 2026" format
+      query.month = { ...query.month, $regex: year.toString(), $options: 'i' };
     }
 
     if (status) {
-      payroll = payroll.filter(p => p.status === status);
+      query.status = status;
     }
+
+    const payroll = await Payroll.find(query);
 
     res.status(200).json({
       success: true,
@@ -53,7 +58,7 @@ export const getMyPayslips = async (req, res) => {
   try {
     const { year } = req.query;
     
-    const employee = db.findOne('employees', e => e.email === req.user.email);
+    const employee = await Employee.findOne({ email: req.user.email });
     if (!employee) {
       const error = new Error('Employee profile not found');
       error.code = 'NOT_FOUND';
@@ -61,12 +66,14 @@ export const getMyPayslips = async (req, res) => {
       throw error;
     }
 
-    let payroll = db.findByQuery('payroll', p => p.employeeId === employee.id);
+    const query = { employeeId: employee.id };
 
     // Filter by year if provided
     if (year) {
-      payroll = payroll.filter(p => p.month.includes(year.toString()));
+      query.month = { $regex: year.toString(), $options: 'i' };
     }
+
+    const payroll = await Payroll.find(query);
 
     res.status(200).json({
       success: true,
@@ -101,7 +108,7 @@ export const generatePayslip = async (req, res) => {
     }
 
     // Get employee details
-    const employee = db.findById('employees', employeeId);
+    const employee = await Employee.findOne({ id: employeeId });
     if (!employee) {
       const error = new Error('Employee not found');
       error.code = 'NOT_FOUND';
@@ -110,9 +117,10 @@ export const generatePayslip = async (req, res) => {
     }
 
     // Check if payslip already generated for this month
-    const existingPayslip = db.findOne('payroll', 
-      p => p.employeeId === employeeId && p.month.toLowerCase() === month.toLowerCase()
-    );
+    const existingPayslip = await Payroll.findOne({
+      employeeId,
+      month: { $regex: new RegExp(`^${month}$`, 'i') }
+    });
 
     if (existingPayslip) {
       const error = new Error('Payslip already generated for this month');
@@ -124,21 +132,17 @@ export const generatePayslip = async (req, res) => {
     const basicSalary = employee.salary || 0;
     const netSalary = basicSalary + parseFloat(bonus) - parseFloat(deductions);
 
-    const payslip = {
+    const payslip = await Payroll.create({
       id: uuidv4(),
       employeeId,
-      employeeName: employee.name,
+      employeeName: employee.name || `${employee.firstName} ${employee.lastName}`,
       month,
       basicSalary,
       bonus: parseFloat(bonus),
       deductions: parseFloat(deductions),
       netSalary,
       status: 'Pending',
-      generatedAt: new Date().toISOString(),
-      paidAt: null,
-    };
-
-    db.insert('payroll', payslip);
+    });
 
     res.status(201).json({
       success: true,
@@ -163,7 +167,7 @@ export const markSalaryAsPaid = async (req, res) => {
   try {
     const { id } = req.params;
 
-    const payslip = db.findById('payroll', id);
+    const payslip = await Payroll.findById(id);
     if (!payslip) {
       const error = new Error('Payslip not found');
       error.code = 'NOT_FOUND';
@@ -171,15 +175,14 @@ export const markSalaryAsPaid = async (req, res) => {
       throw error;
     }
 
-    const updatedPayslip = db.update('payroll', id, {
-      status: 'Paid',
-      paidAt: new Date().toISOString(),
-    });
+    payslip.status = 'Paid';
+    payslip.paidAt = new Date();
+    await payslip.save();
 
     res.status(200).json({
       success: true,
       message: 'Salary marked as paid',
-      data: updatedPayslip,
+      data: payslip,
     });
   } catch (error) {
     if (error.code) {
@@ -199,7 +202,7 @@ export const downloadPayslip = async (req, res) => {
   try {
     const { id } = req.params;
 
-    const payslip = db.findById('payroll', id);
+    const payslip = await Payroll.findById(id);
     if (!payslip) {
       const error = new Error('Payslip not found');
       error.code = 'NOT_FOUND';
@@ -209,7 +212,7 @@ export const downloadPayslip = async (req, res) => {
 
     // Check permissions
     if (req.user.role === 'Employee') {
-      const employee = db.findOne('employees', e => e.email === req.user.email);
+      const employee = await Employee.findOne({ email: req.user.email });
       if (!employee || payslip.employeeId !== employee.id) {
         const error = new Error('You can only access your own payslips');
         error.code = 'FORBIDDEN';

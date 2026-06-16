@@ -1,5 +1,5 @@
 import express from 'express';
-import { registerFace, checkFaceRegistration } from '../controllers/faceController.js';
+import { registerFace, checkFaceRegistration, verifyFace } from '../controllers/faceController.js';
 import { protect } from '../middleware/auth.js';
 import upload from '../middleware/upload.js';
 
@@ -15,6 +15,12 @@ router.post('/register',
 router.get('/check-status', 
   protect, 
   checkFaceRegistration
+);
+
+router.post('/verify',
+  protect,
+  upload.single('face'),
+  verifyFace
 );
 
 export default router;
