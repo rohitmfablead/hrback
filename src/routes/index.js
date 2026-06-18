@@ -13,6 +13,7 @@ import announcementRoutes from './announcementRoutes.js';
 import feedbackRoutes from './feedbackRoutes.js';
 import complaintRoutes from './complaintRoutes.js';
 import performanceRoutes from './performanceRoutes.js';
+import recruitmentRoutes from './recruitmentRoutes.js';
 const router = express.Router();
 
 router.use('/auth', authRoutes);
@@ -29,4 +30,5 @@ router.use('/announcements', announcementRoutes);
 router.use('/feedback', feedbackRoutes);
 router.use('/complaints', complaintRoutes);
 router.use('/performance', performanceRoutes);
+router.use('/recruitment', recruitmentRoutes);
 export default router;

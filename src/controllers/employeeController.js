@@ -37,6 +37,11 @@ export const getAllEmployees = async (req, res) => {
     if (department) query.department = department;
     if (status) query.status = status;
 
+    // Restrict HR to only see regular Employees (prevent viewing Admin or other HRs)
+    if (req.user && req.user.role === 'HR') {
+      query.role = { $nin: ['Admin', 'HR'] };
+    }
+
     // Pagination
     const pageNum = parseInt(page);
     const limitNum = parseInt(limit);
@@ -121,23 +126,30 @@ export const createEmployee = async (req, res) => {
     
     const { id, firstName, lastName, email, phone, department, designation, role, password: providedPassword, salary, joiningDate, status, profilePicture, faceRegistration } = req.body;
     
-    // Handle profile picture upload
+    // Handle profile picture upload (binary)
     let avatarUrl = '';
-    if (req.file) {
-      // Save uploaded file to disk and get full URL
-      // Use PORT from environment or default to 5000
+    if (req.files && req.files.avatar && req.files.avatar[0]) {
+      const file = req.files.avatar[0];
       const port = process.env.PORT || '5000';
       const baseUrl = `http://localhost:${port}`;
-      avatarUrl = `${baseUrl}/uploads/employees/${req.file.filename}`;
+      avatarUrl = `${baseUrl}/uploads/employees/${file.filename}`;
       console.log(`📷 Profile picture uploaded:`, {
-        originalName: req.file.originalname,
-        filename: req.file.filename,
-        size: req.file.size,
-        mimetype: req.file.mimetype,
+        originalName: file.originalname,
+        filename: file.filename,
+        size: file.size,
+        mimetype: file.mimetype,
         url: avatarUrl,
       });
     } else {
-      console.log('❌ No file received in req.file');
+      console.log('❌ No profile picture file received');
+    }
+
+    // Handle face registration binary upload
+    let faceBuffer = null;
+    if (req.files && req.files.faceRegistration && req.files.faceRegistration[0]) {
+      const faceFile = req.files.faceRegistration[0];
+      faceBuffer = fs.readFileSync(faceFile.path);
+      console.log('📷 Face binary uploaded for registration');
     }
 
     // Validation
@@ -203,18 +215,22 @@ export const createEmployee = async (req, res) => {
     let faceEmbedding = [];
     let isFaceRegistered = false;
     
-    if (parsedFaceRegistration && parsedFaceRegistration.faceImage) {
+    if ((parsedFaceRegistration && parsedFaceRegistration.faceImage) || faceBuffer) {
       try {
         await loadFaceModels();
-        const base64Data = parsedFaceRegistration.faceImage.replace(/^data:image\/\w+;base64,/, "");
-        const buffer = Buffer.from(base64Data, 'base64');
+        let buffer = faceBuffer;
+        if (!buffer && parsedFaceRegistration.faceImage) {
+           const base64Data = parsedFaceRegistration.faceImage.replace(/^data:image\/\w+;base64,/, "");
+           buffer = Buffer.from(base64Data, 'base64');
+        }
         faceEmbedding = await detectFaceAndGetEmbedding(buffer);
         isFaceRegistered = true;
+        if (!parsedFaceRegistration) parsedFaceRegistration = {};
         parsedFaceRegistration.faceEmbedding = faceEmbedding;
         parsedFaceRegistration.isRegistered = true;
         console.log(`✅ Extracted face embedding for new employee`);
       } catch (err) {
-        console.error('❌ Failed to get embedding from base64 image:', err.message);
+        console.error('❌ Failed to get embedding from image:', err.message);
       }
     }
 
@@ -247,7 +263,7 @@ export const createEmployee = async (req, res) => {
     }
 
     const finalProfilePicture = {
-      type: parsedProfilePicture?.type || (req.file ? 'upload' : 'none'),
+      type: parsedProfilePicture?.type || (req.files?.avatar ? 'upload' : 'none'),
       url: avatarUrl || parsedProfilePicture?.url || ''
     };
 
@@ -291,10 +307,10 @@ export const createEmployee = async (req, res) => {
         credentials: {
           id: user.id,
           email: user.email,
-          password: generatedPassword, // Send auto-generated password
+          password: generatedPassword,
           isGenerated: !providedPassword,
         },
-        profilePicture: employee.profilePicture, // Include avatar info in response
+        profilePicture: employee.profilePicture,
       },
     });
   } catch (error) {
@@ -317,22 +333,22 @@ export const updateEmployee = async (req, res) => {
     const updateData = req.body;
 
     // Handle profile picture upload for update
-    if (req.file) {
+    if (req.files && req.files.avatar && req.files.avatar[0]) {
       const port = process.env.PORT || '5000';
       const baseUrl = `http://localhost:${port}`;
       
       updateData.profilePicture = {
         type: 'upload',
-        url: `${baseUrl}/uploads/employees/${req.file.filename}`
+        url: `${baseUrl}/uploads/employees/${req.files.avatar[0].filename}`
       };
       
       console.log(`📷 Profile picture updated:`, {
-        originalName: req.file.originalname,
-        filename: req.file.filename,
+        originalName: req.files.avatar[0].originalname,
+        filename: req.files.avatar[0].filename,
         url: updateData.profilePicture.url,
       });
     } else {
-      console.log('❌ No file received in req.file for update');
+      console.log('❌ No file received in req.files.avatar for update');
       if (typeof updateData.profilePicture === 'string') {
         try { updateData.profilePicture = JSON.parse(updateData.profilePicture); } catch (e) {}
       }
@@ -381,11 +397,19 @@ export const updateEmployee = async (req, res) => {
     }
 
     // Update face registration embedding if image is provided
-    if (updateData.faceRegistration && updateData.faceRegistration.faceImage) {
+    let faceBuffer = null;
+    if (req.files && req.files.faceRegistration && req.files.faceRegistration[0]) {
+      faceBuffer = fs.readFileSync(req.files.faceRegistration[0].path);
+    }
+
+    if ((updateData.faceRegistration && updateData.faceRegistration.faceImage) || faceBuffer) {
       try {
         await loadFaceModels();
-        const base64Data = updateData.faceRegistration.faceImage.replace(/^data:image\/\w+;base64,/, "");
-        const buffer = Buffer.from(base64Data, 'base64');
+        let buffer = faceBuffer;
+        if (!buffer && updateData.faceRegistration.faceImage) {
+           const base64Data = updateData.faceRegistration.faceImage.replace(/^data:image\/\w+;base64,/, "");
+           buffer = Buffer.from(base64Data, 'base64');
+        }
         const faceEmbedding = await detectFaceAndGetEmbedding(buffer);
         
         await User.findOneAndUpdate({ email: employee.email }, { 
@@ -393,13 +417,13 @@ export const updateEmployee = async (req, res) => {
           faceEmbedding: faceEmbedding 
         });
         
-        // Also update the employee record data
+        if (!updateData.faceRegistration) updateData.faceRegistration = {};
         updateData.faceRegistration.faceEmbedding = faceEmbedding;
         updateData.faceRegistration.isRegistered = true;
         
         console.log(`✅ Extracted and updated face embedding for existing employee`);
       } catch (err) {
-        console.error('❌ Failed to update embedding from base64 image:', err.message);
+        console.error('❌ Failed to update embedding from image:', err.message);
       }
     }
 
@@ -521,15 +545,23 @@ export const updateMyProfile = async (req, res) => {
     }
 
     // Handle avatar upload
+    // Handle avatar upload (binary)
     let avatarUrl = null;
-    if (req.file) {
+    if (req.files && req.files.avatar && req.files.avatar[0]) {
+      const file = req.files.avatar[0];
       const port = process.env.PORT || '5000';
       const baseUrl = `http://localhost:${port}`;
-      avatarUrl = `${baseUrl}/uploads/employees/${req.file.filename}`;
-      
+      avatarUrl = `${baseUrl}/uploads/employees/${file.filename}`;
+      console.log(`📷 Profile picture uploaded:`, {
+        originalName: file.originalname,
+        filename: file.filename,
+        size: file.size,
+        mimetype: file.mimetype,
+        url: avatarUrl,
+      });
       updateData.profilePicture = {
         type: 'upload',
-        url: avatarUrl
+        url: avatarUrl,
       };
     }
 
@@ -539,11 +571,29 @@ export const updateMyProfile = async (req, res) => {
       updatedEmployee = await db.updateEmployee(employee.id, updateData);
     }
 
-    // Update User (password, name, avatar)
+    // Update User (password, name, avatar, face)
     const userUpdate = {};
     if (newName) userUpdate.name = newName;
     if (avatarUrl) userUpdate.avatar = avatarUrl;
-    
+
+    // Handle face registration binary upload
+    let faceBuffer = null;
+    if (req.files && req.files.faceRegistration && req.files.faceRegistration[0]) {
+      faceBuffer = fs.readFileSync(req.files.faceRegistration[0].path);
+      console.log('📷 Face binary uploaded for update');
+    }
+    if (faceBuffer) {
+      try {
+        await loadFaceModels();
+        const faceEmbedding = await detectFaceAndGetEmbedding(faceBuffer);
+        userUpdate.faceRegistered = true;
+        userUpdate.faceEmbedding = faceEmbedding;
+        console.log('✅ Updated face embedding for user');
+      } catch (err) {
+        console.error('❌ Failed to update face embedding:', err.message);
+      }
+    }
+
     if (password && password.trim().length > 0) {
       userUpdate.password = await bcrypt.hash(password, 10);
     }

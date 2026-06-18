@@ -42,37 +42,31 @@ export const loadFaceModels = async () => {
 // Detect face and get embedding from multer file object or buffer
 export const detectFaceAndGetEmbedding = async (file) => {
   try {
-    const fs = await import('fs');
-    // Handle Buffer directly, memoryStorage (file.buffer) and diskStorage (file.path)
-    const imageBuffer = Buffer.isBuffer(file) ? file : (file.buffer || fs.readFileSync(file.path));
 
-    // Create image from buffer using canvas (Node.js)
+    // Load fs for reading disk files
+    const fs = await import('fs');
+    // Get image buffer (buffer, memory storage, or file path)
+    let imageBuffer = Buffer.isBuffer(file)
+      ? file
+      : (file.buffer ? file.buffer : fs.readFileSync(file.path));
+    // Directly load the image with canvas (no MIME whitelist needed – Multer already validates)
     const { loadImage } = await import('canvas');
     const image = await loadImage(imageBuffer);
-    
-    // Detect face with landmarks using tinyFaceDetector (faster and lighter)
+
+    // Detect face with landmarks using tinyFaceDetector
     const detection = await faceapi
       .detectSingleFace(image, new faceapi.TinyFaceDetectorOptions())
       .withFaceLandmarks()
       .withFaceDescriptor();
-    
+
     if (!detection) {
       throw new Error('No face detected in the image');
     }
-    
-    // Convert Float32Array to regular array for MongoDB storage
-    const embedding = Array.from(detection.descriptor);
-    
-    console.log('✅ Face detected and embedding generated:', {
-      confidence: detection.detection.score,
-      box: detection.detection.box,
-      embeddingLength: embedding.length,
-    });
-    
-    return embedding;
+
+    return Array.from(detection.descriptor);
   } catch (error) {
     console.error('❌ Face detection error:', error.message);
-    throw new Error('Face detection failed. Please ensure your face is clearly visible.');
+    throw new Error(`Face detection failed: ${error.message}`);
   }
 };
 

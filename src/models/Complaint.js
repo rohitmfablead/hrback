@@ -1,6 +1,7 @@
 import mongoose from 'mongoose';
 
 const complaintSchema = new mongoose.Schema({
+  userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
   type: { type: String, enum: ["Harassment", "Discrimination", "Workplace Issue", "Policy Violation", "Other"], required: true },
   subject: { type: String, required: true },
   description: { type: String, required: true },

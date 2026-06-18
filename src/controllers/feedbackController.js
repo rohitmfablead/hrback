@@ -2,7 +2,11 @@ import Feedback from '../models/Feedback.js';
 
 export const getFeedback = async (req, res) => {
   try {
-    const feedbacks = await Feedback.find().sort({ createdAt: -1 });
+    let query = {};
+    if (req.user.role === 'Employee') {
+      query.userId = req.user._id;
+    }
+    const feedbacks = await Feedback.find(query).sort({ createdAt: -1 });
     res.status(200).json({ success: true, data: { feedbacks } });
   } catch (error) {
     res.status(400).json({ success: false, error: { message: error.message } });
@@ -11,7 +15,12 @@ export const getFeedback = async (req, res) => {
 
 export const createFeedback = async (req, res) => {
   try {
-    const feedback = await Feedback.create(req.body);
+    const feedbackData = {
+      ...req.body,
+      userId: req.user._id,
+      submittedBy: req.user.name,
+    };
+    const feedback = await Feedback.create(feedbackData);
     res.status(201).json({ success: true, data: feedback });
   } catch (error) {
     res.status(400).json({ success: false, error: { message: error.message } });

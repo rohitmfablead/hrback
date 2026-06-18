@@ -8,6 +8,23 @@ export const getDashboardStatistics = async (req, res) => {
     const isAdmin = req.user.role === 'Admin' || req.user.role === 'HR';
     const today = new Date().toISOString().split('T')[0];
     const currentDate = new Date();
+    const timeframe = req.query.timeframe || 'today';
+    const currentYear = currentDate.getFullYear();
+    const currentMonth = currentDate.getMonth();
+
+    let startDate, endDate;
+    if (timeframe === 'month') {
+      startDate = new Date(currentYear, currentMonth, 1);
+      endDate = new Date(currentYear, currentMonth + 1, 1);
+    } else if (timeframe === 'year') {
+      startDate = new Date(currentYear, 0, 1);
+      endDate = new Date(currentYear + 1, 0, 1);
+    } else { // today
+      startDate = new Date();
+      startDate.setHours(0,0,0,0);
+      endDate = new Date();
+      endDate.setHours(23,59,59,999);
+    }
 
     // Upcoming birthdays (fetch all employees and match month)
     const allEmps = await Employee.find({ status: 'Active' });
@@ -16,6 +33,7 @@ export const getDashboardStatistics = async (req, res) => {
       if (!empDob) return false;
       return empDob.getMonth() === currentDate.getMonth();
     }).map(emp => ({ 
+      id: emp.id || emp._id?.toString(),
       name: emp.firstName ? `${emp.firstName} ${emp.lastName}` : (emp.name || 'Employee'), 
       date: emp.dob || emp.joiningDate,
       department: emp.department,
@@ -27,13 +45,14 @@ export const getDashboardStatistics = async (req, res) => {
       // Admin/HR Dashboard
       const employees = await Employee.find();
       const activeEmployees = employees.filter(emp => emp.status === 'Active');
-      const todayAttendance = await Attendance.find({ date: today });
-      const pendingLeaves = await Leave.find({ status: 'Pending' });
-      const payroll = await Payroll.find();
+      
+      const attendanceQuery = timeframe === 'today' ? { date: today } : { date: { $gte: startDate, $lt: endDate } };
+      const periodAttendance = await Attendance.find(attendanceQuery);
+      
+      const pendingLeaves = await Leave.find({ status: 'Pending', createdAt: { $gte: startDate, $lt: endDate } });
+      const payroll = await Payroll.find({ status: 'Paid', createdAt: { $gte: startDate, $lt: endDate } });
 
-      const totalPayout = payroll
-        .filter(p => p.status === 'Paid')
-        .reduce((sum, p) => sum + p.netSalary, 0);
+      const totalPayout = payroll.reduce((sum, p) => sum + p.netSalary, 0);
 
       const departmentStats = {};
       activeEmployees.forEach(emp => {
@@ -71,22 +90,38 @@ export const getDashboardStatistics = async (req, res) => {
       }
 
       // Leave Overview Chart
-      const approvedCount = await Leave.countDocuments({ status: 'Approved' });
-      const pendingCount = await Leave.countDocuments({ status: 'Pending' });
-      const rejectedCount = await Leave.countDocuments({ status: 'Rejected' });
+      const approvedCount = await Leave.countDocuments({ status: 'Approved', createdAt: { $gte: startDate, $lt: endDate } });
+      const pendingCount = await Leave.countDocuments({ status: 'Pending', createdAt: { $gte: startDate, $lt: endDate } });
+      const rejectedCount = await Leave.countDocuments({ status: 'Rejected', createdAt: { $gte: startDate, $lt: endDate } });
       const leaveOverview = [
         { name: "Approved", value: approvedCount },
         { name: "Pending", value: pendingCount },
         { name: "Rejected", value: rejectedCount }
       ];
 
+      const presentCount = periodAttendance.filter(a => a.status === 'Present' || a.status === 'Late').length;
+      
+      // Rough attendance percentage for the period
+      let attendancePercentage = 0;
+      if (activeEmployees.length > 0) {
+        if (timeframe === 'today') {
+          attendancePercentage = Math.round((presentCount / activeEmployees.length) * 100);
+        } else {
+          // Approximate for month/year based on elapsed days (excluding weekends)
+          const daysElapsed = Math.max(1, Math.floor((currentDate - startDate) / (1000 * 60 * 60 * 24)));
+          const workingDaysElapsed = daysElapsed * (5/7); // roughly 5 working days a week
+          attendancePercentage = Math.round((presentCount / (activeEmployees.length * Math.max(1, workingDaysElapsed))) * 100);
+          if (attendancePercentage > 100) attendancePercentage = 100;
+        }
+      }
+
       res.status(200).json({
         success: true,
         data: {
           totalEmployees: employees.length,
           activeEmployees: activeEmployees.length,
-          presentToday: todayAttendance.filter(a => a.status === 'Present' || a.status === 'Late').length,
-          attendancePercentage: activeEmployees.length > 0 ? Math.round(((todayAttendance.filter(a => a.status === 'Present' || a.status === 'Late').length / activeEmployees.length) * 100)) : 0,
+          presentToday: presentCount,
+          attendancePercentage,
           pendingLeaves: pendingLeaves.length,
           totalPayout,
           departmentStats: Object.entries(departmentStats).map(([name, count]) => ({ name, count })),
@@ -101,22 +136,8 @@ export const getDashboardStatistics = async (req, res) => {
       const employee = await Employee.findOne({ email: req.user.email });
       if (!employee) throw new Error('Employee profile not found');
 
-      const currentMonth = currentDate.getMonth() + 1;
-      const currentYear = currentDate.getFullYear();
-      
-      const startOfMonth = new Date(`${currentYear}-${String(currentMonth).padStart(2, '0')}-01`);
-      let nextMonth = currentMonth + 1;
-      let nextYear = currentYear;
-      if (nextMonth > 12) {
-        nextMonth = 1;
-        nextYear++;
-      }
-      const startOfNextMonth = new Date(`${nextYear}-${String(nextMonth).padStart(2, '0')}-01`);
-      
-      const attendance = await Attendance.find({ 
-        employeeId: employee.id, 
-        date: { $gte: startOfMonth, $lt: startOfNextMonth } 
-      });
+      const attendanceQuery = timeframe === 'today' ? { date: today, employeeId: employee.id } : { employeeId: employee.id, date: { $gte: startDate, $lt: endDate } };
+      const attendance = await Attendance.find(attendanceQuery);
       
       const presentCount = attendance.filter(a => a.status === 'Present').length;
       const absentCount = attendance.filter(a => a.status === 'Absent').length;
@@ -145,8 +166,9 @@ export const getDashboardStatistics = async (req, res) => {
       const allLeaves = await Leave.find({ employeeId: employee.id });
       const myPendingLeaves = allLeaves.filter(l => l.status === 'Pending').length;
       const usedThisYear = {};
+      const currentYearValue = currentYear; // From top of file
       allLeaves.filter(l => l.status === 'Approved').forEach(leave => {
-        if (new Date(leave.fromDate).getFullYear() === currentYear) {
+        if (new Date(leave.fromDate).getFullYear() === currentYearValue) {
           usedThisYear[leave.leaveType] = (usedThisYear[leave.leaveType] || 0) + 1;
         }
       });

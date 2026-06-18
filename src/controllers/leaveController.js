@@ -369,10 +369,11 @@ export const getLeaveCalendar = async (req, res) => {
       const employee = await Employee.findOne({ email: req.user.email });
       if (employee) query.employeeId = employee.id;
     }
-    const leaves = await Leave.find(query).sort({ date: 1 }).lean();
+    const leaves = await Leave.find(query).sort({ fromDate: 1 }).lean();
     const formatted = leaves.map(l => ({
       ...l,
-      date: new Date(l.date).toISOString().split('T')[0],
+      fromDate: l.fromDate ? new Date(l.fromDate).toISOString().split('T')[0] : null,
+      toDate: l.toDate ? new Date(l.toDate).toISOString().split('T')[0] : null,
     }));
     res.status(200).json({
       success: true,

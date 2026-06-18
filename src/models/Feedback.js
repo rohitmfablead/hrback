@@ -1,6 +1,7 @@
 import mongoose from 'mongoose';
 
 const feedbackSchema = new mongoose.Schema({
+  userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
   category: { type: String, enum: ["Management", "Work Environment", "Benefits", "Career Growth", "Team Collaboration", "Other"], required: true },
   title: { type: String, required: true },
   suggestion: { type: String, required: true },

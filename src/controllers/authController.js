@@ -1,5 +1,6 @@
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
+import nodemailer from 'nodemailer';
 import { v4 as uuidv4 } from 'uuid';
 import config from '../config/index.js';
 import db from '../config/database.js';
@@ -313,6 +314,70 @@ export const initializeAdmin = async (req, res) => {
         code: 'SERVER_ERROR',
         message: error.message || 'Failed to initialize admin account',
       },
+    });
+  }
+};
+
+export const forgotPassword = async (req, res) => {
+  try {
+    const { email } = req.body;
+    
+    if (!email) {
+      return res.status(400).json({ success: false, error: { message: 'Email is required' }});
+    }
+
+    const user = await db.findUserByEmail(email);
+    if (!user) {
+      // Return success anyway to prevent email enumeration attacks, but for this demo returning 404 is fine.
+      return res.status(404).json({ success: false, error: { message: 'User not found with this email' }});
+    }
+
+    // Generate a test account for Nodemailer since we don't have real SMTP credentials
+    let testAccount = await nodemailer.createTestAccount();
+
+    const transporter = nodemailer.createTransport({
+      host: "smtp.ethereal.email",
+      port: 587,
+      secure: false, // true for 465, false for other ports
+      auth: {
+        user: testAccount.user, // generated ethereal user
+        pass: testAccount.pass, // generated ethereal password
+      },
+    });
+
+    // Reset Token Mock
+    const resetToken = uuidv4();
+    const resetLink = `http://localhost:3000/reset-password?token=${resetToken}`;
+
+    const mailOptions = {
+      from: '"SmartHR Support" <support@smarthr.com>',
+      to: email,
+      subject: "Password Reset Request",
+      html: `
+        <h2>Password Reset Request</h2>
+        <p>Hi ${user.name},</p>
+        <p>We received a request to reset your password. Click the link below to reset it:</p>
+        <a href="${resetLink}" style="display:inline-block;padding:10px 20px;background:#007bff;color:#fff;text-decoration:none;border-radius:5px;">Reset Password</a>
+        <p>If you did not request this, please ignore this email.</p>
+        <p>Thanks,<br>SmartHR Team</p>
+      `,
+    };
+
+    const info = await transporter.sendMail(mailOptions);
+    console.log("Message sent: %s", info.messageId);
+    console.log("Preview URL: %s", nodemailer.getTestMessageUrl(info));
+
+    res.status(200).json({
+      success: true,
+      message: 'Password reset link sent to your email',
+      data: { previewUrl: nodemailer.getTestMessageUrl(info) }
+    });
+
+  } catch (error) {
+    console.error('Forgot Password Error:', error);
+    res.status(500).json({
+      success: false,
+      error: { message: 'Failed to send reset email' },
     });
   }
 };

@@ -2,7 +2,11 @@ import Complaint from '../models/Complaint.js';
 
 export const getComplaints = async (req, res) => {
   try {
-    const complaints = await Complaint.find().sort({ createdAt: -1 });
+    let query = {};
+    if (req.user.role === 'Employee') {
+      query.userId = req.user._id;
+    }
+    const complaints = await Complaint.find(query).sort({ createdAt: -1 });
     res.status(200).json({ success: true, data: { complaints } });
   } catch (error) {
     res.status(400).json({ success: false, error: { message: error.message } });
@@ -11,7 +15,12 @@ export const getComplaints = async (req, res) => {
 
 export const createComplaint = async (req, res) => {
   try {
-    const complaint = await Complaint.create(req.body);
+    const complaintData = {
+      ...req.body,
+      userId: req.user._id,
+      reportedBy: req.body.isAnonymous ? "Anonymous" : req.user.name,
+    };
+    const complaint = await Complaint.create(complaintData);
     res.status(201).json({ success: true, data: complaint });
   } catch (error) {
     res.status(400).json({ success: false, error: { message: error.message } });

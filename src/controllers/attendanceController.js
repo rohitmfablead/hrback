@@ -29,10 +29,10 @@ const calculateAttendanceMetrics = (checkIn, checkOut) => {
   if (checkIn && checkOut) {
     const [inH, inM] = checkIn.split(':').map(Number);
     const [outH, outM] = checkOut.split(':').map(Number);
-    
+
     const inTotalMins = inH * 60 + inM;
     let outTotalMins = outH * 60 + outM;
-    
+
     if (outTotalMins < inTotalMins) {
       outTotalMins += 24 * 60; // Overnight
     }
@@ -58,7 +58,7 @@ const calculateAttendanceMetrics = (checkIn, checkOut) => {
 export const getAttendanceRecords = async (req, res) => {
   try {
     const { employeeId, fromDate, toDate, status } = req.query;
-    
+
     let query = {};
 
     // Apply filters based on user role
@@ -82,7 +82,7 @@ export const getAttendanceRecords = async (req, res) => {
     }
 
     const attendance = await Attendance.find(query).sort({ createdAt: -1 }).lean();
-    
+
     // Format dates to YYYY-MM-DD for the frontend
     const formattedAttendance = attendance.map(a => ({
       ...a,
@@ -132,7 +132,7 @@ export const markAttendance = async (req, res) => {
         throw error;
       }
       targetEmployeeId = employee.id;
-      
+
       if (employeeId !== employee.id) {
         const error = new Error('You can only mark your own attendance');
         error.code = 'FORBIDDEN';
@@ -144,9 +144,9 @@ export const markAttendance = async (req, res) => {
     // Check if attendance already marked for today
     const today = new Date().toISOString().split('T')[0];
     const targetDateStr = date || today;
-    const existingAttendance = await Attendance.findOne({ 
-      employeeId: employeeId, 
-      date: new Date(targetDateStr) 
+    const existingAttendance = await Attendance.findOne({
+      employeeId: employeeId,
+      date: new Date(targetDateStr)
     });
 
     if (existingAttendance) {
@@ -193,7 +193,7 @@ export const markAttendance = async (req, res) => {
 export const checkInWithFace = async (req, res) => {
   try {
     console.log('📸 Check-in request received from user:', req.user.email);
-    
+
     // Load face models if not already loaded
     await loadFaceModels();
 
@@ -211,7 +211,7 @@ export const checkInWithFace = async (req, res) => {
     const queryEmbedding = await detectFaceAndGetEmbedding(req.file);
 
     // Get the logged in user's registered face
-    const userWithFace = await User.findOne({ 
+    const userWithFace = await User.findOne({
       email: req.user.email,
       faceRegistered: true,
       faceEmbedding: { $exists: true, $ne: [] }
@@ -249,10 +249,10 @@ export const checkInWithFace = async (req, res) => {
 
     const today = new Date().toISOString().split('T')[0];
     const now = new Date();
-    const checkInTime = now.toLocaleTimeString('en-US', { 
-      hour: '2-digit', 
+    const checkInTime = now.toLocaleTimeString('en-US', {
+      hour: '2-digit',
       minute: '2-digit',
-      hour12: false 
+      hour12: false
     });
 
     const startOfDay = new Date(today);
@@ -260,8 +260,8 @@ export const checkInWithFace = async (req, res) => {
     endOfDay.setDate(endOfDay.getDate() + 1);
 
     // Check if already checked in today
-    const existingAttendance = await Attendance.findOne({ 
-      employeeId: matchedUser.id, 
+    const existingAttendance = await Attendance.findOne({
+      employeeId: matchedUser.id,
       date: { $gte: startOfDay, $lt: endOfDay }
     });
 
@@ -296,7 +296,6 @@ export const checkInWithFace = async (req, res) => {
       message: 'Check-in successful',
       data: {
         checkIn: checkInTime,
-        status,
         ...attendance,
       },
     });
@@ -319,7 +318,7 @@ export const checkInWithFace = async (req, res) => {
 export const checkOutWithFace = async (req, res) => {
   try {
     console.log('📸 Check-out request received from user:', req.user.email);
-    
+
     // Load face models if not already loaded
     await loadFaceModels();
 
@@ -337,7 +336,7 @@ export const checkOutWithFace = async (req, res) => {
     const queryEmbedding = await detectFaceAndGetEmbedding(req.file);
 
     // Get all users with registered faces
-    const usersWithFaces = await User.find({ 
+    const usersWithFaces = await User.find({
       faceRegistered: true,
       faceEmbedding: { $exists: true, $ne: [] }
     });
@@ -389,10 +388,10 @@ export const checkOutWithFace = async (req, res) => {
 
     const today = new Date().toISOString().split('T')[0];
     const now = new Date();
-    const checkOutTime = now.toLocaleTimeString('en-US', { 
-      hour: '2-digit', 
+    const checkOutTime = now.toLocaleTimeString('en-US', {
+      hour: '2-digit',
       minute: '2-digit',
-      hour12: false 
+      hour12: false
     });
 
     const startOfDay = new Date(today);
@@ -400,8 +399,8 @@ export const checkOutWithFace = async (req, res) => {
     endOfDay.setDate(endOfDay.getDate() + 1);
 
     // Find today's attendance record
-    const todayAttendance = await Attendance.findOne({ 
-      employeeId: matchedUser.id, 
+    const todayAttendance = await Attendance.findOne({
+      employeeId: matchedUser.id,
       date: { $gte: startOfDay, $lt: endOfDay }
     });
 
@@ -454,8 +453,8 @@ export const directCheckIn = async (req, res) => {
   try {
     const today = new Date().toISOString().split('T')[0];
     const now = new Date();
-    const checkInTime = now.toLocaleTimeString('en-US', { 
-      hour: '2-digit', minute: '2-digit', hour12: false 
+    const checkInTime = now.toLocaleTimeString('en-US', {
+      hour: '2-digit', minute: '2-digit', hour12: false
     });
 
     const startOfDay = new Date(today);
@@ -467,8 +466,8 @@ export const directCheckIn = async (req, res) => {
       employee = { id: req.user.id, name: req.user.name };
     }
 
-    const existingAttendance = await Attendance.findOne({ 
-      employeeId: employee.id, 
+    const existingAttendance = await Attendance.findOne({
+      employeeId: employee.id,
       date: { $gte: startOfDay, $lt: endOfDay }
     });
 
@@ -499,13 +498,13 @@ export const directCheckIn = async (req, res) => {
 export const directCheckOut = async (req, res) => {
   try {
     console.log('🚪 Direct check-out request received from user:', req.user.email);
-    
+
     const today = new Date().toISOString().split('T')[0];
     const now = new Date();
-    const checkOutTime = now.toLocaleTimeString('en-US', { 
-      hour: '2-digit', 
+    const checkOutTime = now.toLocaleTimeString('en-US', {
+      hour: '2-digit',
       minute: '2-digit',
-      hour12: false 
+      hour12: false
     });
 
     const startOfDay = new Date(today);
@@ -513,8 +512,8 @@ export const directCheckOut = async (req, res) => {
     endOfDay.setDate(endOfDay.getDate() + 1);
 
     // Find today's attendance record
-    const todayAttendance = await Attendance.findOne({ 
-      employeeId: req.user.id, 
+    const todayAttendance = await Attendance.findOne({
+      employeeId: req.user.id,
       date: { $gte: startOfDay, $lt: endOfDay }
     });
 
@@ -566,7 +565,7 @@ export const directCheckOut = async (req, res) => {
 export const getMyAttendance = async (req, res) => {
   try {
     const { month, year } = req.query;
-    
+
     const employee = await Employee.findOne({ email: req.user.email });
     let query = { employeeId: employee ? employee.id : req.user.id };
 
@@ -577,12 +576,12 @@ export const getMyAttendance = async (req, res) => {
 
       const startDate = new Date(yearNum, monthNum ? monthNum - 1 : 0, 1);
       const endDate = new Date(yearNum, monthNum ? monthNum : 12, 0);
-      
+
       query.date = { $gte: startDate, $lte: endDate };
     }
 
     const attendanceRecords = await Attendance.find(query).lean();
-    
+
     // Format dates to YYYY-MM-DD
     const attendance = attendanceRecords.map(a => ({
       ...a,
@@ -628,8 +627,8 @@ export const getTodayStatus = async (req, res) => {
     const endOfDay = new Date(today);
     endOfDay.setDate(endOfDay.getDate() + 1);
 
-    const attendance = await Attendance.findOne({ 
-      employeeId: employeeId, 
+    const attendance = await Attendance.findOne({
+      employeeId: employeeId,
       date: { $gte: startOfDay, $lt: endOfDay }
     });
 
@@ -642,14 +641,14 @@ export const getTodayStatus = async (req, res) => {
         todayObj.setHours(hours || 0, minutes || 0, 0, 0);
         return todayObj.getTime();
       };
-      
+
       const checkInMs = parseTime(attendance.checkIn);
       const endMs = attendance.checkOut ? parseTime(attendance.checkOut) : Date.now();
       const diffMs = endMs - checkInMs;
-      
+
       const hours = Math.floor(diffMs / (1000 * 60 * 60));
       const minutes = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60));
-      
+
       const totalDec = diffMs / (1000 * 60 * 60);
       const remDec = Math.max(0, 8 - totalDec);
       const remHours = Math.floor(remDec);
@@ -720,7 +719,7 @@ export const getAttendanceCalendar = async (req, res) => {
 export const getAttendanceStatistics = async (req, res) => {
   try {
     const { month, year } = req.query;
-    
+
     let query = {};
 
     // Filter by month and year if provided
@@ -730,7 +729,7 @@ export const getAttendanceStatistics = async (req, res) => {
 
       const startDate = new Date(yearNum, monthNum ? monthNum - 1 : 0, 1);
       const endDate = new Date(yearNum, monthNum ? monthNum : 12, 0);
-      
+
       query.date = { $gte: startDate, $lte: endDate };
     }
 
@@ -751,7 +750,7 @@ export const getAttendanceStatistics = async (req, res) => {
       presentToday: todayAttendance.filter(a => a.status === 'Present' || a.status === 'Late').length,
       absentToday: todayAttendance.filter(a => a.status === 'Absent').length,
       lateToday: todayAttendance.filter(a => a.status === 'Late').length,
-      attendancePercentage: employees.length > 0 
+      attendancePercentage: employees.length > 0
         ? Math.round(((todayAttendance.filter(a => a.status === 'Present' || a.status === 'Late').length / employees.length) * 100))
         : 0,
       weeklyData: [],
@@ -764,7 +763,7 @@ export const getAttendanceStatistics = async (req, res) => {
       date.setDate(date.getDate() - i);
       const dateStr = date.toISOString().split('T')[0];
       const dayAttendance = attendance.filter(a => a.date === dateStr);
-      
+
       stats.weeklyData.push({
         day: days[date.getDay()],
         present: dayAttendance.filter(a => a.status === 'Present' || a.status === 'Late').length,
@@ -805,7 +804,7 @@ export const updateAttendance = async (req, res) => {
 
     const finalCheckIn = updateData.checkIn || attendance.checkIn;
     const finalCheckOut = updateData.checkOut !== undefined ? updateData.checkOut : attendance.checkOut;
-    
+
     const metrics = calculateAttendanceMetrics(finalCheckIn, finalCheckOut);
     const finalUpdateData = { ...updateData, ...metrics };
 

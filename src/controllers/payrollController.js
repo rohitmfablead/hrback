@@ -167,7 +167,7 @@ export const markSalaryAsPaid = async (req, res) => {
   try {
     const { id } = req.params;
 
-    const payslip = await Payroll.findById(id);
+    const payslip = await Payroll.findOne({ id });
     if (!payslip) {
       const error = new Error('Payslip not found');
       error.code = 'NOT_FOUND';
@@ -202,7 +202,7 @@ export const downloadPayslip = async (req, res) => {
   try {
     const { id } = req.params;
 
-    const payslip = await Payroll.findById(id);
+    const payslip = await Payroll.findOne({ id });
     if (!payslip) {
       const error = new Error('Payslip not found');
       error.code = 'NOT_FOUND';

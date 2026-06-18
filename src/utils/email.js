@@ -20,10 +20,11 @@ export const sendWelcomeEmail = async (email, name, employeeId, password) => {
     const mailOptions = {
       from: process.env.SMTP_USER,
       to: email,
-      subject: 'Welcome to Emp Care Circle! Your Login Credentials',
+      subject: 'Welcome to SmartHR! Your Login Credentials',
       html: `
-        <div style="font-family: Arial, sans-serif; max-w-md; margin: auto; padding: 20px; color: #333; border: 1px solid #eaeaea; border-radius: 10px;">
-          <h2 style="color: #4f46e5; text-align: center;">Welcome to the Team, ${name}!</h2>
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e0e0e0; border-radius: 5px;">
+          <h2 style="color: #2c3e50; text-align: center;">Welcome to SmartHR!</h2>
+          <p>Dear ${name},</p>
           <p>Your employee account has been created successfully.</p>
           <p>You can use the following credentials to log in to your employee dashboard:</p>
           

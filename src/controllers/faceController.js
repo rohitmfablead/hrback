@@ -27,12 +27,28 @@ export const registerFace = async (req, res) => {
     // Detect face and get embedding
     const embedding = await detectFaceAndGetEmbedding(req.file);
 
+    // Ensure we store a plain JavaScript array (MongoDB expects [] of Numbers)
+    const embeddingArray = Array.isArray(embedding) ? embedding : Array.from(embedding);
+
     // Update User with face embedding
     const updatedUser = await User.findOneAndUpdate(
       { email: req.user.email },
       {
-        faceEmbedding: embedding,
+        faceEmbedding: embeddingArray,
         faceRegistered: true,
+      },
+      { new: true }
+    );
+
+    // Also update Employee faceRegistration subdocument
+    const updatedEmployee = await Employee.findOneAndUpdate(
+      { email: req.user.email },
+      {
+        $set: {
+          'faceRegistration.isRegistered': true,
+          'faceRegistration.faceEmbedding': embeddingArray,
+          'faceRegistration.registeredAt': new Date()
+        }
       },
       { new: true }
     );
@@ -119,8 +135,14 @@ export const verifyFace = async (req, res) => {
   try {
     console.log('📸 Face verification request received');
     
-    // Ensure models are loaded
-    await loadFaceModels();
+    // Ensure face models are loaded
+    const modelsOk = await loadFaceModels();
+    if (!modelsOk) {
+      const err = new Error('Face recognition models could not be loaded');
+      err.code = 'SERVER_ERROR';
+      err.statusCode = 500;
+      throw err;
+    }
 
     if (!req.file) {
       const error = new Error('No face image provided');
@@ -132,23 +154,23 @@ export const verifyFace = async (req, res) => {
     // Detect face and get embedding
     const queryEmbedding = await detectFaceAndGetEmbedding(req.file);
 
-    // Get the logged in user's registered face
-    const userWithFace = await User.findOne({ 
-      email: req.user.email,
-      faceRegistered: true,
-      faceEmbedding: { $exists: true, $ne: [] }
+    // Get all employees who have a registered face
+    const employeesWithFaces = await Employee.find({
+      'faceRegistration.isRegistered': true
     });
 
-    if (!userWithFace) {
-      const error = new Error('You have not registered your face yet.');
+    if (!employeesWithFaces || employeesWithFaces.length === 0) {
+      const error = new Error('No faces have been registered in the system yet.');
       error.code = 'NOT_FOUND';
       error.statusCode = 404;
       throw error;
     }
 
-    const userEmbeddings = {
-      [userWithFace.id]: userWithFace.faceEmbedding
-    };
+    // Build a map of employeeId -> embedding for matching
+    const userEmbeddings = {};
+    employeesWithFaces.forEach(e => {
+      userEmbeddings[e.id] = e.faceRegistration.faceEmbedding;
+    });
 
     // Find best match (uses faceRecognition.js util)
     const { findBestFaceMatch } = await import('../utils/faceRecognition.js');
@@ -165,8 +187,8 @@ export const verifyFace = async (req, res) => {
       });
     }
 
-    // Find the matched user
-    const matchedUser = await User.findOne({ id: matchResult.userId });
+    // Find the matched employee
+    const matchedEmployee = await Employee.findOne({ id: matchResult.userId });
     
     // Convert distance to a percentage (roughly)
     const matchPercentage = Math.max(0, Math.min(100, Math.round((1 - matchResult.distance) * 100)));
@@ -177,8 +199,8 @@ export const verifyFace = async (req, res) => {
         isMatch: true,
         distance: matchResult.distance,
         matchPercentage,
-        userId: matchedUser.id,
-        name: matchedUser.name,
+        userId: matchedEmployee.id,
+        name: matchedEmployee.firstName + ' ' + matchedEmployee.lastName,
       }
     });
 
