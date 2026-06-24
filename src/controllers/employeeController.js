@@ -450,11 +450,14 @@ export const deleteEmployee = async (req, res) => {
   try {
     const { id } = req.params;
     
-    // First try to delete the User account (login credentials)
-    const user = await User.findOneAndDelete({ id: id });
-    
-    // Then try to find and delete the employee record
+    // Find the employee record first
     const employee = await db.findEmployeeById(id);
+
+    // Try to delete the User account (login credentials)
+    let user = await User.findOneAndDelete({ id: id });
+    if (!user && employee && employee.email) {
+      user = await User.findOneAndDelete({ email: employee.email });
+    }
 
     if (!employee && !user) {
       const error = new Error('Employee/User not found');

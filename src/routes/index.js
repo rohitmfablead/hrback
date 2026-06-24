@@ -14,6 +14,9 @@ import feedbackRoutes from './feedbackRoutes.js';
 import complaintRoutes from './complaintRoutes.js';
 import performanceRoutes from './performanceRoutes.js';
 import recruitmentRoutes from './recruitmentRoutes.js';
+import departmentRoutes from './departmentRoutes.js';
+import designationRoutes from './designationRoutes.js';
+import leaveTypeRoutes from './leaveTypeRoutes.js';
 const router = express.Router();
 
 router.use('/auth', authRoutes);
@@ -31,4 +34,7 @@ router.use('/feedback', feedbackRoutes);
 router.use('/complaints', complaintRoutes);
 router.use('/performance', performanceRoutes);
 router.use('/recruitment', recruitmentRoutes);
+router.use('/departments', departmentRoutes);
+router.use('/designations', designationRoutes);
+router.use('/leave-types', leaveTypeRoutes);
 export default router;

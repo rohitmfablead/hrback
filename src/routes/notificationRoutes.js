@@ -16,6 +16,6 @@ router.put('/read-all', protect, markAllAsRead);
 router.put('/:id/read', protect, markNotificationAsRead);
 router.delete('/', protect, clearAllNotifications);
 router.delete('/:id', protect, deleteNotification);
-router.post('/', protect, authorize('Admin', 'HR'), createNotification);
+router.post('/', protect, createNotification);
 
 export default router;

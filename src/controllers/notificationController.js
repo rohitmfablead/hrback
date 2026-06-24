@@ -2,9 +2,14 @@ import Notification from '../models/Notification.js';
 
 export const getNotifications = async (req, res) => {
   try {
-    const { unreadOnly, type, limit = 20 } = req.query;
+    const { unreadOnly, type, limit = 20, userId } = req.query;
     
     const query = {};
+
+    // If a userId is provided, return notifications for that user or global (null) notifications
+    if (userId) {
+      query.$or = [{ userId: userId }, { userId: null }];
+    }
 
     if (unreadOnly === 'true') {
       query.isRead = false;

@@ -27,9 +27,13 @@ export const getAllLeaveRequests = async (req, res) => {
     }
 
     if (fromDate || toDate) {
-      query.fromDate = {};
-      if (fromDate) query.fromDate.$gte = new Date(fromDate);
-      if (toDate) query.fromDate.$lte = new Date(toDate);
+      query.createdAt = {};
+      if (fromDate) query.createdAt.$gte = new Date(fromDate);
+      if (toDate) {
+        let endDate = new Date(toDate);
+        endDate.setHours(23, 59, 59, 999);
+        query.createdAt.$lte = endDate;
+      }
     }
 
     const leaves = await Leave.find(query).sort({ createdAt: -1 }).lean();
@@ -318,10 +322,29 @@ export const getLeaveBalance = async (req, res) => {
     const usedThisYear = {};
     const currentYear = new Date().getFullYear();
     
+    const typeMapping = {
+      'Sick Leave': 'sickLeave',
+      'Casual Leave': 'casualLeave',
+      'Annual Leave': 'annualLeave',
+      'Vacation': 'annualLeave', // Treat Vacation as Annual
+      'Maternity': 'maternityLeave',
+      'Maternity Leave': 'maternityLeave',
+      'Paternity': 'paternityLeave',
+      'Paternity Leave': 'paternityLeave',
+      'Loss of Pay': 'lossOfPay'
+    };
+
     approvedLeaves.forEach(leave => {
-      const leaveYear = new Date(leave.fromDate).getFullYear();
+      const fromDate = new Date(leave.fromDate);
+      const toDate = new Date(leave.toDate);
+      const leaveYear = fromDate.getFullYear();
+      
       if (leaveYear === currentYear) {
-        usedThisYear[leave.leaveType] = (usedThisYear[leave.leaveType] || 0) + 1;
+        const diffTime = Math.abs(toDate.getTime() - fromDate.getTime());
+        const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)) + 1;
+        
+        const key = typeMapping[leave.leaveType] || leave.leaveType;
+        usedThisYear[key] = (usedThisYear[key] || 0) + diffDays;
       }
     });
 
@@ -332,6 +355,7 @@ export const getLeaveBalance = async (req, res) => {
       annualLeave: 20,
       maternityLeave: 90,
       paternityLeave: 15,
+      lossOfPay: 0,
     };
 
     const leaveBalance = {};

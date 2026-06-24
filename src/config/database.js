@@ -48,7 +48,11 @@ class Database {
   }
 
   async findEmployeeById(id) {
-    return await Employee.findOne({ id });
+    let emp = await Employee.findOne({ id });
+    if (!emp && mongoose.Types.ObjectId.isValid(id)) {
+      emp = await Employee.findById(id);
+    }
+    return emp;
   }
 
   async findEmployeeByEmail(email) {
@@ -66,7 +70,11 @@ class Database {
   }
 
   async deleteEmployee(id) {
-    return await Employee.findOneAndDelete({ id });
+    let emp = await Employee.findOneAndDelete({ id });
+    if (!emp && mongoose.Types.ObjectId.isValid(id)) {
+      emp = await Employee.findByIdAndDelete(id);
+    }
+    return emp;
   }
 
   // Attendance operations

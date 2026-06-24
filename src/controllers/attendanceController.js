@@ -114,12 +114,13 @@ export const markAttendance = async (req, res) => {
     const { employeeId, checkIn, checkOut, date } = req.body;
 
     // Validation
-    if (!employeeId || !checkIn) {
-      const error = new Error('Employee ID and check-in time are required');
+    if (!employeeId) {
+      const error = new Error('Employee ID is required');
       error.code = 'VALIDATION_ERROR';
       error.statusCode = 400;
       throw error;
     }
+    // Note: checkIn is optional for checkout when attendance already exists
 
     // Employees can only mark their own attendance
     let targetEmployeeId = employeeId;
@@ -150,6 +151,18 @@ export const markAttendance = async (req, res) => {
     });
 
     if (existingAttendance) {
+      // If checkout time provided and attendance not yet checked out, update record
+      if (checkOut && !existingAttendance.checkOut) {
+        const metrics = calculateAttendanceMetrics(existingAttendance.checkIn, checkOut);
+        existingAttendance.checkOut = checkOut;
+        Object.assign(existingAttendance, metrics);
+        await existingAttendance.save();
+        return res.status(200).json({
+          success: true,
+          message: 'Check-out recorded successfully',
+          data: existingAttendance,
+        });
+      }
       const error = new Error('Attendance already marked for today');
       error.code = 'CONFLICT';
       error.statusCode = 409;
