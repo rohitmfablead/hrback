@@ -40,6 +40,7 @@ const upload = multer({
   fileFilter: fileFilter,
   limits: {
     fileSize: 5 * 1024 * 1024, // 5MB limit
+    fieldSize: 20 * 1024 * 1024, // 20MB limit for text fields (like base64 strings)
   },
 });
 

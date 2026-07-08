@@ -202,6 +202,8 @@ export const getDashboardStatistics = async (req, res) => {
         if (dayRecord) {
           if (dayRecord.status === 'Present' || dayRecord.status === 'Late') status = 'present';
           else if (dayRecord.status === 'Absent') status = 'absent';
+        } else if (dateObj.getDay() === 0 || dateObj.getDay() === 6) {
+          status = 'wo';
         }
         weeklyAttendance.push({
           date: dateStr,

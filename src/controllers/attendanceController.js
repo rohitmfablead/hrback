@@ -6,7 +6,7 @@ import Attendance from '../models/Attendance.js';
 import { loadFaceModels, detectFaceAndGetEmbedding, findBestFaceMatch } from '../utils/faceRecognition.js';
 
 // --- Helper for Attendance Time Math ---
-const calculateAttendanceMetrics = (checkIn, checkOut) => {
+const calculateAttendanceMetrics = (checkIn, checkOut, checkIn2, checkOut2) => {
   let status = 'Present';
   let lateByMinutes = 0;
   let totalWorkedHours = '';
@@ -26,9 +26,12 @@ const calculateAttendanceMetrics = (checkIn, checkOut) => {
   }
 
   // 2. Calculate Checkout Analytics (9-Hour Requirement)
-  if (checkIn && checkOut) {
-    const [inH, inM] = checkIn.split(':').map(Number);
-    const [outH, outM] = checkOut.split(':').map(Number);
+  let totalWorkedMins = 0;
+
+  const calculateShiftMins = (inTime, outTime) => {
+    if (!inTime || !outTime) return 0;
+    const [inH, inM] = inTime.split(':').map(Number);
+    const [outH, outM] = outTime.split(':').map(Number);
 
     const inTotalMins = inH * 60 + inM;
     let outTotalMins = outH * 60 + outM;
@@ -37,9 +40,19 @@ const calculateAttendanceMetrics = (checkIn, checkOut) => {
       outTotalMins += 24 * 60; // Overnight
     }
 
-    const totalWorkedMins = outTotalMins - inTotalMins;
-    const requiredMins = 9 * 60; // 9 hours
+    return outTotalMins - inTotalMins;
+  };
 
+  if (checkIn && checkOut) {
+    totalWorkedMins += calculateShiftMins(checkIn, checkOut);
+  }
+
+  if (checkIn2 && checkOut2) {
+    totalWorkedMins += calculateShiftMins(checkIn2, checkOut2);
+  }
+
+  if (totalWorkedMins > 0) {
+    const requiredMins = 9 * 60; // 9 hours
     const formatMins = (m) => `${Math.floor(m / 60)}h ${m % 60}m`;
 
     totalWorkedHours = formatMins(totalWorkedMins);
@@ -111,7 +124,7 @@ export const getAttendanceRecords = async (req, res) => {
 
 export const markAttendance = async (req, res) => {
   try {
-    const { employeeId, checkIn, checkOut, date } = req.body;
+    const { employeeId, checkIn, checkOut, checkIn2, checkOut2, date } = req.body;
 
     // Validation
     if (!employeeId) {
@@ -151,26 +164,43 @@ export const markAttendance = async (req, res) => {
     });
 
     if (existingAttendance) {
+      let updated = false;
       // If checkout time provided and attendance not yet checked out, update record
       if (checkOut && !existingAttendance.checkOut) {
-        const metrics = calculateAttendanceMetrics(existingAttendance.checkIn, checkOut);
         existingAttendance.checkOut = checkOut;
+        updated = true;
+      } else if (checkIn2 && !existingAttendance.checkIn2) {
+        existingAttendance.checkIn2 = checkIn2;
+        updated = true;
+      } else if (checkOut2 && !existingAttendance.checkOut2) {
+        existingAttendance.checkOut2 = checkOut2;
+        updated = true;
+      }
+
+      if (updated) {
+        const metrics = calculateAttendanceMetrics(
+          existingAttendance.checkIn, 
+          existingAttendance.checkOut,
+          existingAttendance.checkIn2,
+          existingAttendance.checkOut2
+        );
         Object.assign(existingAttendance, metrics);
         await existingAttendance.save();
         return res.status(200).json({
           success: true,
-          message: 'Check-out recorded successfully',
+          message: 'Attendance updated successfully',
           data: existingAttendance,
         });
       }
-      const error = new Error('Attendance already marked for today');
+
+      const error = new Error('Attendance already fully marked for today');
       error.code = 'CONFLICT';
       error.statusCode = 409;
       throw error;
     }
 
     // Calculate advanced metrics
-    const metrics = calculateAttendanceMetrics(checkIn, checkOut);
+    const metrics = calculateAttendanceMetrics(checkIn, checkOut, checkIn2, checkOut2);
 
     const emp = await Employee.findOne({ id: employeeId });
     const attendance = await Attendance.create({
@@ -180,6 +210,8 @@ export const markAttendance = async (req, res) => {
       date: new Date(targetDateStr),
       checkIn,
       checkOut: checkOut || '',
+      checkIn2: checkIn2 || '',
+      checkOut2: checkOut2 || '',
       ...metrics
     });
 
@@ -279,10 +311,39 @@ export const checkInWithFace = async (req, res) => {
     });
 
     if (existingAttendance) {
-      const error = new Error('Already checked in today');
-      error.code = 'CONFLICT';
-      error.statusCode = 409;
-      throw error;
+      if (!existingAttendance.checkOut) {
+        const error = new Error('You are already checked in. Please check out first.');
+        error.code = 'CONFLICT';
+        error.statusCode = 409;
+        throw error;
+      }
+      if (existingAttendance.checkIn2) {
+        const error = new Error('Already fully checked in for today.');
+        error.code = 'CONFLICT';
+        error.statusCode = 409;
+        throw error;
+      }
+
+      // Checking into 2nd time
+      existingAttendance.checkIn2 = checkInTime;
+      const metrics = calculateAttendanceMetrics(
+        existingAttendance.checkIn,
+        existingAttendance.checkOut,
+        existingAttendance.checkIn2,
+        existingAttendance.checkOut2
+      );
+      Object.assign(existingAttendance, metrics);
+      await existingAttendance.save();
+      
+      console.log(`✅ 2nd Check-in successful for ${matchedUser.name} at ${checkInTime}`);
+      return res.status(201).json({
+        success: true,
+        message: '2nd Check-in successful',
+        data: {
+          checkIn2: checkInTime,
+          ...existingAttendance.toObject(),
+        },
+      });
     }
 
     // Determine status based on check-in time using advanced metrics
@@ -424,16 +485,23 @@ export const checkOutWithFace = async (req, res) => {
       throw error;
     }
 
-    if (todayAttendance.checkOut) {
-      const error = new Error('Already checked out today');
+    if (todayAttendance.checkIn2 && !todayAttendance.checkOut2) {
+      todayAttendance.checkOut2 = checkOutTime;
+    } else if (!todayAttendance.checkOut) {
+      todayAttendance.checkOut = checkOutTime;
+    } else {
+      const error = new Error('Already fully checked out today');
       error.code = 'CONFLICT';
       error.statusCode = 409;
       throw error;
     }
 
-    // Update attendance record with check-out time and metrics
-    todayAttendance.checkOut = checkOutTime;
-    const metrics = calculateAttendanceMetrics(todayAttendance.checkIn, checkOutTime);
+    const metrics = calculateAttendanceMetrics(
+      todayAttendance.checkIn,
+      todayAttendance.checkOut,
+      todayAttendance.checkIn2,
+      todayAttendance.checkOut2
+    );
     Object.assign(todayAttendance, metrics);
     await todayAttendance.save();
 
@@ -485,7 +553,23 @@ export const directCheckIn = async (req, res) => {
     });
 
     if (existingAttendance) {
-      return res.status(400).json({ success: false, error: { message: 'Already checked in today' } });
+      if (!existingAttendance.checkOut) {
+        return res.status(400).json({ success: false, error: { message: 'Already checked in. Please check out first.' } });
+      }
+      if (existingAttendance.checkIn2) {
+        return res.status(400).json({ success: false, error: { message: 'Already fully checked in today.' } });
+      }
+
+      existingAttendance.checkIn2 = checkInTime;
+      const metrics = calculateAttendanceMetrics(
+        existingAttendance.checkIn,
+        existingAttendance.checkOut,
+        existingAttendance.checkIn2,
+        existingAttendance.checkOut2
+      );
+      Object.assign(existingAttendance, metrics);
+      await existingAttendance.save();
+      return res.status(200).json({ success: true, data: { attendance: existingAttendance } });
     }
 
     const { status, lateByMinutes } = calculateAttendanceMetrics(checkInTime, null);
@@ -537,16 +621,23 @@ export const directCheckOut = async (req, res) => {
       throw error;
     }
 
-    if (todayAttendance.checkOut) {
-      const error = new Error('Already checked out today');
+    if (todayAttendance.checkIn2 && !todayAttendance.checkOut2) {
+      todayAttendance.checkOut2 = checkOutTime;
+    } else if (!todayAttendance.checkOut) {
+      todayAttendance.checkOut = checkOutTime;
+    } else {
+      const error = new Error('Already fully checked out today');
       error.code = 'CONFLICT';
       error.statusCode = 409;
       throw error;
     }
 
-    // Update attendance record with check-out time and metrics
-    todayAttendance.checkOut = checkOutTime;
-    const metrics = calculateAttendanceMetrics(todayAttendance.checkIn, checkOutTime);
+    const metrics = calculateAttendanceMetrics(
+      todayAttendance.checkIn, 
+      todayAttendance.checkOut,
+      todayAttendance.checkIn2,
+      todayAttendance.checkOut2
+    );
     Object.assign(todayAttendance, metrics);
     await todayAttendance.save();
 
@@ -595,16 +686,50 @@ export const getMyAttendance = async (req, res) => {
 
     const attendanceRecords = await Attendance.find(query).lean();
 
-    // Format dates to YYYY-MM-DD
     const attendance = attendanceRecords.map(a => ({
       ...a,
       date: new Date(a.date).toISOString().split('T')[0]
     }));
 
+    // Generate missing days
+    let minDate = new Date();
+    if (attendance.length > 0) {
+      minDate = new Date(Math.min(...attendance.map(a => new Date(a.date))));
+    }
+    if (!month && !year) {
+      const cutoff = new Date();
+      cutoff.setDate(cutoff.getDate() - 90);
+      if (minDate < cutoff) minDate = cutoff;
+    } else {
+      const monthNum = month ? parseInt(month) : null;
+      const yearNum = year ? parseInt(year) : new Date().getFullYear();
+      minDate = new Date(yearNum, monthNum ? monthNum - 1 : 0, 1);
+    }
+
+    const today = new Date();
+    const end = (month || year) ? new Date(year ? parseInt(year) : today.getFullYear(), month ? parseInt(month) : 12, 0) : today;
+    const actualEnd = end > today ? today : end;
+
+    const existingDates = new Set(attendance.map(a => a.date));
+
+    for (let d = new Date(minDate); d <= actualEnd; d.setDate(d.getDate() + 1)) {
+      const dStr = d.toISOString().split('T')[0];
+      if (!existingDates.has(dStr)) {
+        if (d.getDay() === 0 || d.getDay() === 6) {
+          attendance.push({ id: `wo-${dStr}`, date: dStr, status: 'WO' });
+        } else if (d < today || dStr === today.toISOString().split('T')[0]) {
+          attendance.push({ id: `absent-${dStr}`, date: dStr, status: 'Absent' });
+        }
+      }
+    }
+    
+    attendance.sort((a, b) => new Date(b.date) - new Date(a.date));
+
     // Calculate summary
     const summary = {
       present: attendance.filter(a => a.status === 'Present').length,
       absent: attendance.filter(a => a.status === 'Absent').length,
+      wo: attendance.filter(a => a.status === 'WO').length,
       late: attendance.filter(a => a.status === 'Late').length,
       totalWorkingDays: attendance.length,
     };
@@ -656,8 +781,14 @@ export const getTodayStatus = async (req, res) => {
       };
 
       const checkInMs = parseTime(attendance.checkIn);
-      const endMs = attendance.checkOut ? parseTime(attendance.checkOut) : Date.now();
-      const diffMs = endMs - checkInMs;
+      const endMs = attendance.checkOut ? parseTime(attendance.checkOut) : (attendance.checkIn2 ? parseTime(attendance.checkOut) : Date.now());
+      let diffMs = endMs - checkInMs;
+
+      if (attendance.checkIn2) {
+        const checkIn2Ms = parseTime(attendance.checkIn2);
+        const end2Ms = attendance.checkOut2 ? parseTime(attendance.checkOut2) : Date.now();
+        diffMs += (end2Ms - checkIn2Ms);
+      }
 
       const hours = Math.floor(diffMs / (1000 * 60 * 60));
       const minutes = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60));
@@ -672,8 +803,12 @@ export const getTodayStatus = async (req, res) => {
         data: {
           isCheckedIn: true,
           isCheckedOut: !!attendance.checkOut,
+          isCheckedIn2: !!attendance.checkIn2,
+          isCheckedOut2: !!attendance.checkOut2,
           checkIn: attendance.checkIn,
           checkOut: attendance.checkOut,
+          checkIn2: attendance.checkIn2,
+          checkOut2: attendance.checkOut2,
           status: attendance.status,
           hoursCompleted: `${hours}h ${minutes}m`,
           hoursRemaining: remDec > 0 ? `${remHours}h ${remMins}m` : "Done"

@@ -58,8 +58,8 @@ app.use(cors({
 // app.use('/api', limiter);
 
 // Body parser middleware
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
+app.use(express.json({ limit: '50mb' }));
+app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
 // Create uploads directory if it doesn't exist
 const uploadsDir = path.join(__dirname, '../uploads');
@@ -110,7 +110,7 @@ const initializeServer = async () => {
     await connectDB();
 
     // Create admin user if not exists
-    const adminExists = await User.findOne({ email: config.adminEmail });
+    const adminExists = await User.findOne({ $or: [{ email: config.adminEmail }, { id: 'admin-001' }] });
     if (!adminExists) {
       const hashedPassword = await bcrypt.hash(config.adminPassword, 10);
       await User.create({
