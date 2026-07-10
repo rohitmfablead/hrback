@@ -2,6 +2,8 @@ import Employee from '../models/Employee.js';
 import Attendance from '../models/Attendance.js';
 import Leave from '../models/Leave.js';
 import Payroll from '../models/Payroll.js';
+import Task from '../models/Task.js';
+import Announcement from '../models/Announcement.js';
 
 export const getDashboardStatistics = async (req, res) => {
   try {
@@ -31,7 +33,7 @@ export const getDashboardStatistics = async (req, res) => {
     const upcomingBirthdays = allEmps.filter(emp => {
       const empDob = emp.dob ? new Date(emp.dob) : (emp.joiningDate ? new Date(emp.joiningDate) : null);
       if (!empDob) return false;
-      return empDob.getMonth() === currentDate.getMonth();
+      return empDob.getMonth() === currentDate.getMonth() && empDob.getDate() >= currentDate.getDate();
     }).map(emp => ({ 
       id: emp.id || emp._id?.toString(),
       name: emp.firstName ? `${emp.firstName} ${emp.lastName}` : (emp.name || 'Employee'), 
@@ -213,6 +215,17 @@ export const getDashboardStatistics = async (req, res) => {
         });
       }
 
+      // Fetch dynamic pending tasks
+      const myTasks = await Task.find({ assignedTo: employee._id, status: { $ne: 'Completed' } }).limit(5);
+      
+      const announcements = await Announcement.find({ 
+        $or: [
+          { targetAudience: 'All' }, 
+          { targetAudience: employee.department },
+          { targetAudience: 'Employees' }
+        ]
+      }).sort({ createdAt: -1 }).limit(5);
+
       res.status(200).json({
         success: true,
         data: {
@@ -232,10 +245,8 @@ export const getDashboardStatistics = async (req, res) => {
           upcomingBirthdays,
           weeklyAttendance, // <--- added
           recentLeaves: allLeaves.slice(0, 3),
-          pendingTasks: [
-            { id: 1, title: 'Submit weekly report', status: 'Pending' },
-            { id: 2, title: 'Update client presentation', status: 'In Progress' }
-          ]
+          pendingTasks: myTasks.map(t => ({ id: t._id, title: t.title, status: t.status })),
+          announcements: announcements
         },
       });
     }

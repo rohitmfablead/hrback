@@ -11,7 +11,13 @@ export const getAnnouncements = async (req, res) => {
 
 export const createAnnouncement = async (req, res) => {
   try {
-    const announcement = await Announcement.create(req.body);
+    const payload = { ...req.body };
+    if (!payload.targetAudience) payload.targetAudience = 'All';
+    if (!payload.type) payload.type = 'General';
+    if (!payload.priority) payload.priority = 'Medium';
+    if (!payload.createdBy) payload.createdBy = req.user?.name || 'Admin';
+
+    const announcement = await Announcement.create(payload);
     
     // Emit global notification for announcement
     const io = req.app.get('io');
