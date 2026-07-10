@@ -80,6 +80,10 @@ const employeeSchema = new mongoose.Schema({
     faceEmbedding: { type: [Number], default: [] },
     registeredAt: { type: Date }
   },
+  visiblePassword: {
+    type: String,
+    default: ''
+  },
 }, {
   timestamps: true,
 });

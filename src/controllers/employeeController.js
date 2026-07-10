@@ -282,6 +282,7 @@ export const createEmployee = async (req, res) => {
         joiningDate: joiningDate || new Date(),
         status: normalizedStatus,
         profilePicture: finalProfilePicture,
+        visiblePassword: generatedPassword || providedPassword,
         faceRegistration: parsedFaceRegistration || {
           isRegistered: false,
           faceImage: "",
@@ -520,10 +521,11 @@ export const getMyProfile = async (req, res) => {
 export const updateMyProfile = async (req, res) => {
   try {
     const email = req.user.email;
-    const employee = await db.findEmployeeByEmail(email);
+    let employee = await db.findEmployeeByEmail(email);
+    let userRecord = await User.findOne({ email });
 
-    if (!employee) {
-      const error = new Error('Employee profile not found');
+    if (!employee && !userRecord) {
+      const error = new Error('Profile not found');
       error.code = 'NOT_FOUND';
       error.statusCode = 404;
       throw error;
@@ -537,6 +539,7 @@ export const updateMyProfile = async (req, res) => {
     if (dob !== undefined) updateData.dob = dob;
     if (bloodGroup !== undefined) updateData.bloodGroup = bloodGroup;
     if (emergencyContact !== undefined) updateData.emergencyContact = emergencyContact;
+    if (password && password.trim().length > 0) updateData.visiblePassword = password.trim();
     
     // Handle name update
     let newName = null;
@@ -570,14 +573,15 @@ export const updateMyProfile = async (req, res) => {
 
     // Update Employee
     let updatedEmployee = employee;
-    if (Object.keys(updateData).length > 0) {
+    if (employee && Object.keys(updateData).length > 0) {
       updatedEmployee = await db.updateEmployee(employee.id, updateData);
     }
 
-    // Update User (password, name, avatar, face)
+    // Update User (password, name, avatar, face, phone)
     const userUpdate = {};
     if (newName) userUpdate.name = newName;
     if (avatarUrl) userUpdate.avatar = avatarUrl;
+    if (phone !== undefined) userUpdate.phone = phone;
 
     // Handle face registration binary upload
     let faceBuffer = null;
@@ -610,7 +614,7 @@ export const updateMyProfile = async (req, res) => {
 
     res.status(200).json({
       success: true,
-      data: updatedEmployee,
+      data: updatedEmployee || { ...userRecord.toObject(), ...userUpdate },
     });
   } catch (error) {
     if (error.code) {

@@ -17,6 +17,9 @@ import recruitmentRoutes from './recruitmentRoutes.js';
 import departmentRoutes from './departmentRoutes.js';
 import designationRoutes from './designationRoutes.js';
 import leaveTypeRoutes from './leaveTypeRoutes.js';
+import taskRoutes from './taskRoutes.js';
+import chatRoutes from './chatRoutes.js';
+
 const router = express.Router();
 
 router.use('/auth', authRoutes);
@@ -37,4 +40,7 @@ router.use('/recruitment', recruitmentRoutes);
 router.use('/departments', departmentRoutes);
 router.use('/designations', designationRoutes);
 router.use('/leave-types', leaveTypeRoutes);
+router.use('/tasks', taskRoutes);
+router.use('/chat', chatRoutes);
+
 export default router;

@@ -3,6 +3,10 @@ import cors from 'cors';
 import helmet from 'helmet';
 import morgan from 'morgan';
 import compression from 'compression';
+import http from 'http';
+import { Server } from 'socket.io';
+import Message from './models/Message.js';
+import Conversation from './models/Conversation.js';
 import rateLimit from 'express-rate-limit';
 import multer from 'multer';
 import path from 'path';
@@ -124,9 +128,105 @@ const initializeServer = async () => {
       console.log('✓ Admin user created');
     }
 
-    // Start server
-    app.listen(config.port, () => {
-     
+    // Start server with Socket.IO
+    const server = http.createServer(app);
+    const io = new Server(server, {
+      cors: {
+        origin: '*',
+        methods: ['GET', 'POST', 'PUT', 'DELETE']
+      }
+    });
+    app.set('io', io);
+
+    io.on('connection', (socket) => {
+      console.log('User connected to socket:', socket.id);
+      
+      socket.on('join', (userId) => {
+        socket.join(userId); // Users join a room with their own userId
+        console.log(`User ${userId} joined their personal room`);
+      });
+
+      socket.on('send_message', async (data) => {
+        try {
+          const { senderId, receiverId, text, imageUrl } = data;
+          
+          let conversation = await Conversation.findOne({
+            participants: { $all: [senderId, receiverId] }
+          });
+
+          if (!conversation) {
+            conversation = await Conversation.create({
+              participants: [senderId, receiverId]
+            });
+          }
+
+          const newMessage = await Message.create({
+            conversationId: conversation._id,
+            sender: senderId,
+            text,
+            imageUrl
+          });
+
+          conversation.lastMessage = newMessage._id;
+          await conversation.save();
+
+          // Emit to receiver's personal room
+          io.to(receiverId).emit('receive_message', newMessage);
+          // Emit to sender so their UI updates immediately too (if needed)
+          io.to(senderId).emit('receive_message', newMessage);
+          
+        } catch (error) {
+          console.error('Socket send_message error:', error);
+        }
+      });
+
+      socket.on('typing', (data) => {
+        const { senderId, receiverId } = data;
+        io.to(receiverId).emit('user_typing', { senderId });
+      });
+
+      socket.on('stop_typing', (data) => {
+        const { senderId, receiverId } = data;
+        io.to(receiverId).emit('user_stop_typing', { senderId });
+      });
+
+      socket.on('mark_read', async (data) => {
+        try {
+          const { senderId, receiverId } = data; // receiverId is the one who sent the messages originally
+          
+          let conversation = await Conversation.findOne({
+            participants: { $all: [senderId, receiverId] }
+          });
+
+          if (conversation) {
+            await Message.updateMany(
+              { conversationId: conversation._id, sender: receiverId, read: false },
+              { $set: { read: true } }
+            );
+            
+            // Notify the original sender that their messages were read
+            io.to(receiverId).emit('messages_read', { 
+              readerId: senderId,
+              conversationId: conversation._id 
+            });
+          }
+        } catch (error) {
+          console.error('Socket mark_read error:', error);
+        }
+      });
+
+      socket.on('disconnect', () => {
+        console.log('User disconnected:', socket.id);
+      });
+    });
+
+    server.listen(config.port, () => {
+      console.log(`✓ Server running in ${config.nodeEnv} mode on port ${config.port}`);
+    });
+
+    // Start background jobs
+    import('./utils/cron.js').then(module => {
+      module.default();
     });
   } catch (error) {
     console.error('Failed to initialize server:', error);

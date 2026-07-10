@@ -12,6 +12,16 @@ export const getAnnouncements = async (req, res) => {
 export const createAnnouncement = async (req, res) => {
   try {
     const announcement = await Announcement.create(req.body);
+    
+    // Emit global notification for announcement
+    const io = req.app.get('io');
+    if (io) {
+      io.emit("receive_notification", {
+        title: "New Announcement",
+        message: announcement.title || "A new company announcement was posted."
+      });
+    }
+
     res.status(201).json({ success: true, data: announcement });
   } catch (error) {
     res.status(400).json({ success: false, error: { message: error.message } });

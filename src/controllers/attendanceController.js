@@ -569,6 +569,13 @@ export const directCheckIn = async (req, res) => {
       );
       Object.assign(existingAttendance, metrics);
       await existingAttendance.save();
+      const io = req.app.get('io');
+      if (io) {
+        io.emit("receive_notification", {
+          title: "Attendance Update",
+          message: `${employee.name} checked in (Shift 2)`
+        });
+      }
       return res.status(200).json({ success: true, data: { attendance: existingAttendance } });
     }
 
@@ -585,6 +592,16 @@ export const directCheckIn = async (req, res) => {
     });
 
     await attendance.save();
+
+    const io = req.app.get('io');
+    console.log("Socket IO Instance available:", !!io);
+    if (io) {
+      console.log("Emitting attendance notification...");
+      io.emit("receive_notification", {
+        title: "Attendance Update",
+        message: `${employee.name} just checked in`
+      });
+    }
 
     res.status(200).json({ success: true, data: { attendance } });
   } catch (error) {
@@ -643,6 +660,14 @@ export const directCheckOut = async (req, res) => {
 
     console.log(`✅ Direct check-out successful for ${req.user.name} at ${checkOutTime}`);
 
+    const io = req.app.get('io');
+    if (io) {
+      io.emit("receive_notification", {
+        title: "Attendance Update",
+        message: `${req.user.name} just checked out`
+      });
+    }
+
     res.status(200).json({
       success: true,
       message: 'Check-out successful',
@@ -692,10 +717,12 @@ export const getMyAttendance = async (req, res) => {
     }));
 
     // Generate missing days
-    let minDate = new Date();
+    let minDate = employee?.joiningDate ? new Date(employee.joiningDate) : new Date();
     if (attendance.length > 0) {
-      minDate = new Date(Math.min(...attendance.map(a => new Date(a.date))));
+      const earliestAtt = new Date(Math.min(...attendance.map(a => new Date(a.date))));
+      if (earliestAtt < minDate) minDate = earliestAtt;
     }
+
     if (!month && !year) {
       const cutoff = new Date();
       cutoff.setDate(cutoff.getDate() - 90);
@@ -703,7 +730,12 @@ export const getMyAttendance = async (req, res) => {
     } else {
       const monthNum = month ? parseInt(month) : null;
       const yearNum = year ? parseInt(year) : new Date().getFullYear();
-      minDate = new Date(yearNum, monthNum ? monthNum - 1 : 0, 1);
+      const firstDayOfMonth = new Date(yearNum, monthNum ? monthNum - 1 : 0, 1);
+      
+      minDate = firstDayOfMonth;
+      if (employee?.joiningDate && minDate < new Date(employee.joiningDate)) {
+        minDate = new Date(employee.joiningDate);
+      }
     }
 
     const today = new Date();
