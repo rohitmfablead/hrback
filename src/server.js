@@ -94,6 +94,15 @@ app.use(compression());
 // API Routes
 app.use('/api', routes);
 
+// Root endpoint
+app.get('/', (req, res) => {
+  res.status(200).json({
+    success: true,
+    message: 'HR Management API is running',
+    version: '1.0.0'
+  });
+});
+
 // Health check endpoint
 app.get('/api/health', (req, res) => {
   res.status(200).json({
