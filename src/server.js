@@ -103,6 +103,15 @@ app.get('/api/health', (req, res) => {
   });
 });
 
+// Test endpoint
+app.get('/api/test', (req, res) => {
+  res.status(200).json({
+    success: true,
+    message: 'Test API is working perfectly!',
+    timestamp: new Date().toISOString(),
+  });
+});
+
 // Error handling
 app.use(notFound);
 app.use(errorHandler);
