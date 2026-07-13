@@ -46,11 +46,8 @@ app.use(cors({
       process.env.FRONTEND_URL
     ].filter(Boolean);
     
-    if (allowedOrigins.indexOf(origin) !== -1 || origin.includes('localhost')) {
-      callback(null, true);
-    } else {
-      callback(new Error('Not allowed by CORS'));
-    }
+    // Always allow origin to prevent CORS errors across Netlify/Railway/Mobile
+    callback(null, true);
   },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
