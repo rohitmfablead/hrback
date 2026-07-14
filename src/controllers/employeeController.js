@@ -385,18 +385,6 @@ export const updateEmployee = async (req, res) => {
       }
     }
 
-    // Update Employee record
-    const updatedEmployee = await db.updateEmployee(id, updateData);
-    
-    // Also update User record if avatar/profilePicture is being updated
-    if (updateData.profilePicture?.url) {
-      await User.findOneAndUpdate({ email: employee.email }, { avatar: updateData.profilePicture.url });
-      console.log(`🖼️ User avatar also updated to:`, updateData.profilePicture.url);
-    } else if (updateData.firstName || updateData.lastName) {
-      const newName = `${updateData.firstName || employee.firstName} ${updateData.lastName || employee.lastName}`;
-      await User.findOneAndUpdate({ email: employee.email }, { name: newName });
-    }
-
     // Update face registration embedding if image is provided
     let faceBuffer = null;
     if (req.files && req.files.faceRegistration && req.files.faceRegistration[0]) {
@@ -426,6 +414,18 @@ export const updateEmployee = async (req, res) => {
       } catch (err) {
         console.error('❌ Failed to update embedding from image:', err.message);
       }
+    }
+
+    // Update Employee record
+    const updatedEmployee = await db.updateEmployee(id, updateData);
+    
+    // Also update User record if avatar/profilePicture is being updated
+    if (updateData.profilePicture?.url) {
+      await User.findOneAndUpdate({ email: employee.email }, { avatar: updateData.profilePicture.url });
+      console.log(`🖼️ User avatar also updated to:`, updateData.profilePicture.url);
+    } else if (updateData.firstName || updateData.lastName) {
+      const newName = `${updateData.firstName || employee.firstName} ${updateData.lastName || employee.lastName}`;
+      await User.findOneAndUpdate({ email: employee.email }, { name: newName });
     }
 
     res.status(200).json({
