@@ -79,7 +79,7 @@ if (!fs.existsSync(employeeUploadsDir)) {
 // NOTE: Removed redundant server-level upload middleware. Individual routes now handle multipart uploads using the shared upload middleware (src/middleware/upload.js).
 
 // Serve uploaded files statically
-app.use('/uploads', express.static(path.resolve('uploads')));
+app.use('/uploads', express.static(uploadsDir));
 // Logging middleware
 if (config.nodeEnv === 'development') {
   app.use(morgan('dev'));
