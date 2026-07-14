@@ -9,7 +9,10 @@ import Employee from '../models/Employee.js';
 
 export const login = async (req, res) => {
   try {
-    const { email, password } = req.body;
+    let { email, password } = req.body;
+    
+    // Trim email to fix mobile keyboard trailing space issue
+    if (email) email = email.trim();
 
     // 🔹 1. Validation
     if (!email || !password) {
