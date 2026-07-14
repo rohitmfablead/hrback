@@ -131,7 +131,7 @@ export const createEmployee = async (req, res) => {
     if (req.files && req.files.avatar && req.files.avatar[0]) {
       const file = req.files.avatar[0];
       const port = process.env.PORT || '5000';
-      const baseUrl = `http://localhost:${port}`;
+      const baseUrl = process.env.BASE_URL || `${req.protocol}://${req.get('host')}`;
       avatarUrl = `${baseUrl}/uploads/employees/${file.filename}`;
       console.log(`📷 Profile picture uploaded:`, {
         originalName: file.originalname,
@@ -336,7 +336,7 @@ export const updateEmployee = async (req, res) => {
     // Handle profile picture upload for update
     if (req.files && req.files.avatar && req.files.avatar[0]) {
       const port = process.env.PORT || '5000';
-      const baseUrl = `http://localhost:${port}`;
+      const baseUrl = process.env.BASE_URL || `${req.protocol}://${req.get('host')}`;
       
       updateData.profilePicture = {
         type: 'upload',
@@ -556,7 +556,7 @@ export const updateMyProfile = async (req, res) => {
     if (req.files && req.files.avatar && req.files.avatar[0]) {
       const file = req.files.avatar[0];
       const port = process.env.PORT || '5000';
-      const baseUrl = `http://localhost:${port}`;
+      const baseUrl = process.env.BASE_URL || `${req.protocol}://${req.get('host')}`;
       avatarUrl = `${baseUrl}/uploads/employees/${file.filename}`;
       console.log(`📷 Profile picture uploaded:`, {
         originalName: file.originalname,
