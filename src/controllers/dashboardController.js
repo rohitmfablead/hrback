@@ -138,17 +138,32 @@ export const getDashboardStatistics = async (req, res) => {
       const employee = await Employee.findOne({ email: req.user.email });
       if (!employee) throw new Error('Employee profile not found');
 
-      const attendanceQuery = timeframe === 'today' ? { date: today, employeeId: employee.id } : { employeeId: employee.id, date: { $gte: startDate, $lt: endDate } };
-      const attendance = await Attendance.find(attendanceQuery);
+      // Fetch attendance for the current month and last 7 days
+      const monthStart = new Date(currentYear, currentMonth, 1);
+      const sevenDaysAgo = new Date();
+      sevenDaysAgo.setHours(0,0,0,0);
+      sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+      const fetchStart = monthStart < sevenDaysAgo ? monthStart : sevenDaysAgo;
       
-      const presentCount = attendance.filter(a => a.status === 'Present').length;
-      const absentCount = attendance.filter(a => a.status === 'Absent').length;
-      const lateCount = attendance.filter(a => a.status === 'Late').length;
-      const totalDays = attendance.length;
+      const attendance = await Attendance.find({ 
+        employeeId: employee.id, 
+        date: { $gte: fetchStart } 
+      });
+      
+      // Calculate monthly stats
+      const monthAttendance = attendance.filter(a => {
+        const d = new Date(a.date);
+        return d.getMonth() === currentMonth && d.getFullYear() === currentYear;
+      });
+
+      const presentCount = monthAttendance.filter(a => a.status === 'Present' || a.status === 'Late').length;
+      const absentCount = monthAttendance.filter(a => a.status === 'Absent').length;
+      const lateCount = monthAttendance.filter(a => a.status === 'Late').length;
+      const totalDays = monthAttendance.length;
 
       // Today's hours
       const todayRecord = attendance.find(a => {
-        const aDateStr = typeof a.date === 'string' ? a.date.split('T')[0] : new Date(a.date).toISOString().split('T')[0];
+        const aDateStr = new Date(a.date).toISOString().split('T')[0];
         return aDateStr === today;
       });
       let todayHours = "0h 0m";
